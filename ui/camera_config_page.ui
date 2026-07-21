@@ -1,0 +1,1634 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>CameraConfigPage</class>
+ <widget class="QWidget" name="CameraConfigPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>800</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="layout_root">
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <property name="contentsMargins" stdset="0">
+    <number>0</number>
+   </property>
+   <item>
+    <widget class="QSplitter" name="splitter_main">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <property name="childrenCollapsible">
+      <bool>false</bool>
+     </property>
+     <widget class="QFrame" name="frame_camera_sidebar">
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <layout class="QVBoxLayout" name="layout_sidebar">
+       <property name="spacing">
+        <number>6</number>
+       </property>
+       <property name="contentsMargins" stdset="0">
+        <number>8</number>
+       </property>
+       <item>
+        <widget class="QLineEdit" name="edit_search_camera">
+         <property name="placeholderText">
+          <string>Search camera…</string>
+         </property>
+         <property name="clearButtonEnabled">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="list_camera_config">
+         <property name="alternatingRowColors">
+          <bool>true</bool>
+         </property>
+         <property name="selectionMode">
+          <enum>QAbstractItemView::SingleSelection</enum>
+         </property>
+         <property name="sortingEnabled">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_refresh_camera">
+         <property name="text">
+          <string>↻  Refresh</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="widget_config_area">
+      <layout class="QVBoxLayout" name="layout_config_area">
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <property name="contentsMargins" stdset="0">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QTabWidget" name="tab_camera_config">
+         <property name="tabPosition">
+          <enum>QTabWidget::North</enum>
+         </property>
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <property name="documentMode">
+          <bool>true</bool>
+         </property>
+         <widget class="QWidget" name="tab_basic">
+          <attribute name="title">
+           <string>Basic</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="layout_tab_basic">
+           <property name="spacing">
+            <number>12</number>
+           </property>
+           <property name="contentsMargins" stdset="0">
+            <number>12</number>
+           </property>
+           <item>
+            <widget class="QScrollArea" name="scroll_basic">
+             <property name="frameShape">
+              <enum>QFrame::NoFrame</enum>
+             </property>
+             <property name="widgetResizable">
+              <bool>true</bool>
+             </property>
+             <widget class="QWidget" name="scroll_basic_contents">
+              <property name="geometry">
+               <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>803</width>
+                <height>700</height>
+               </rect>
+              </property>
+              <layout class="QVBoxLayout" name="verticalLayout">
+               <item>
+                <widget class="QGroupBox" name="group_basic_identity">
+                 <property name="title">
+                  <string>Camera Identity</string>
+                 </property>
+                 <layout class="QFormLayout" name="form_basic_identity">
+                  <property name="labelAlignment">
+                   <set>Qt::AlignLeading</set>
+                  </property>
+                  <property name="horizontalSpacing">
+                   <number>12</number>
+                  </property>
+                  <property name="verticalSpacing">
+                   <number>8</number>
+                  </property>
+                  <property name="contentsMargins" stdset="0">
+                   <number>12</number>
+                  </property>
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="lbl_camera_name">
+                    <property name="text">
+                     <string>Camera Name</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QLineEdit" name="edit_camera_name">
+                    <property name="placeholderText">
+                     <string>e.g. Main Entrance</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="lbl_camera_id">
+                    <property name="text">
+                     <string>Camera ID</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QLineEdit" name="edit_camera_id">
+                    <property name="placeholderText">
+                     <string>e.g. 01</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
+                   <widget class="QLabel" name="lbl_vendor">
+                    <property name="text">
+                     <string>Vendor</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="1">
+                   <widget class="QComboBox" name="combo_vendor">
+                    <item>
+                     <property name="text">
+                      <string>Unknown</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Hikvision</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Dahua</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Axis</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Bosch</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Other</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item>
+                <widget class="QGroupBox" name="group_basic_connection">
+                 <property name="title">
+                  <string>Connection</string>
+                 </property>
+                 <layout class="QFormLayout" name="form_basic_connection">
+                  <property name="labelAlignment">
+                   <set>Qt::AlignLeading</set>
+                  </property>
+                  <property name="horizontalSpacing">
+                   <number>12</number>
+                  </property>
+                  <property name="verticalSpacing">
+                   <number>8</number>
+                  </property>
+                  <property name="contentsMargins" stdset="0">
+                   <number>12</number>
+                  </property>
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="lbl_ip_address">
+                    <property name="text">
+                     <string>IP Address</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QLineEdit" name="edit_ip_address">
+                    <property name="placeholderText">
+                     <string>192.168.1.100</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="lbl_stream_url">
+                    <property name="text">
+                     <string>Stream URL</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QLineEdit" name="edit_stream_url">
+                    <property name="placeholderText">
+                     <string>rtsp://user:pass@192.168.1.100/stream</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
+                   <widget class="QLabel" name="lbl_substream_url">
+                    <property name="text">
+                     <string>Substream URL</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="1">
+                   <widget class="QLineEdit" name="edit_substream_url">
+                    <property name="placeholderText">
+                     <string>rtsp://user:pass@192.168.1.100/substream (để trống nếu dùng Stream URL)</string>
+                    </property>
+                    <property name="toolTip">
+                     <string>Luồng phụ (độ phân giải thấp) dùng cho AI + xem trực tiếp thay vì Stream URL - giảm băng thông/CPU decode, không ảnh hưởng độ chính xác AI vì đã tự resize xuống &lt;=640px. Để trống để dùng Stream URL (mainstream) như trước.</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="3" column="1">
+                   <widget class="QCheckBox" name="check_use_substream">
+                    <property name="text">
+                     <string>Dùng Substream (thay vì Stream URL) nếu đã cấu hình</string>
+                    </property>
+                    <property name="toolTip">
+                     <string>Bỏ tick để tạm dùng lại Stream URL (mainstream) mà không cần xoá Substream URL đã lưu.</string>
+                    </property>
+                    <property name="checked">
+                     <bool>true</bool>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="4" column="0">
+                   <widget class="QLabel" name="lbl_status">
+                    <property name="text">
+                     <string>Status</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="4" column="1">
+                   <widget class="QComboBox" name="combo_status">
+                    <item>
+                     <property name="text">
+                      <string>Online</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Offline</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Error</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item>
+                <widget class="QGroupBox" name="group_basic_stream">
+                 <property name="title">
+                  <string>Stream Settings</string>
+                 </property>
+                 <layout class="QFormLayout" name="form_basic_stream">
+                  <property name="labelAlignment">
+                   <set>Qt::AlignLeading</set>
+                  </property>
+                  <property name="horizontalSpacing">
+                   <number>12</number>
+                  </property>
+                  <property name="verticalSpacing">
+                   <number>8</number>
+                  </property>
+                  <property name="contentsMargins" stdset="0">
+                   <number>12</number>
+                  </property>
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="lbl_resolution">
+                    <property name="text">
+                     <string>Resolution</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QComboBox" name="combo_resolution">
+                    <property name="toolTip">
+                     <string>Giới hạn độ phân giải HIỂN THỊ tối đa (không đổi độ phân giải AI dùng để detect). Camera nguồn có resolution cao hơn mức chọn sẽ được downscale trước khi hiển thị để đỡ lag - chọn 4K = không giới hạn. Với camera USB, còn yêu cầu camera capture đúng resolution này (cần Stop/Start lại camera mới áp dụng); IP/RTSP thì camera server quyết định, không set được.</string>
+                    </property>
+                    <item>
+                     <property name="text">
+                      <string>3840×2160  (4K)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>1920×1080  (1080p)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>1280×720   (720p)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>640×480    (VGA)</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="lbl_fps">
+                    <property name="text">
+                     <string>FPS</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QSpinBox" name="spin_fps">
+                    <property name="toolTip">
+                     <string>Giới hạn tốc độ HIỂN THỊ (số khung hình/giây gửi lên xem) - không giới hạn tốc độ AI xử lý (xem "AI FPS Limit" ở tab AI). Có hiệu lực ngay, không cần Stop/Start lại.</string>
+                    </property>
+                    <property name="minimum">
+                     <number>1</number>
+                    </property>
+                    <property name="maximum">
+                     <number>120</number>
+                    </property>
+                    <property name="value">
+                     <number>25</number>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item>
+                <layout class="QVBoxLayout" name="layout_basic_preview_col">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <item>
+                  <layout class="QHBoxLayout" name="layout_preview_header">
+                   <item>
+                    <widget class="QLabel" name="lbl_preview_title">
+                     <property name="text">
+                      <string>Camera Preview</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <spacer>
+                     <property name="orientation">
+                      <enum>Qt::Horizontal</enum>
+                     </property>
+                     <property name="sizeHint" stdset="0">
+                      <size>
+                       <width>40</width>
+                       <height>20</height>
+                      </size>
+                     </property>
+                    </spacer>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="btn_toggle_preview">
+                     <property name="checkable">
+                      <bool>true</bool>
+                     </property>
+                     <property name="text">
+                      <string>▶  Open Preview</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </item>
+                 <item>
+                  <widget class="QFrame" name="frame_camera_preview">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                     <horstretch>0</horstretch>
+                     <verstretch>1</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>640</width>
+                     <height>480</height>
+                    </size>
+                   </property>
+                   <property name="frameShape">
+                    <enum>QFrame::NoFrame</enum>
+                   </property>
+                   <layout class="QVBoxLayout" name="layout_preview_inner">
+                    <item>
+                     <widget class="QLabel" name="lbl_preview_placeholder">
+                      <property name="sizePolicy">
+                       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                        <horstretch>0</horstretch>
+                        <verstretch>0</verstretch>
+                       </sizepolicy>
+                      </property>
+                      <property name="minimumSize">
+                       <size>
+                        <width>640</width>
+                        <height>480</height>
+                       </size>
+                      </property>
+                      <property name="alignment">
+                       <set>Qt::AlignCenter</set>
+                      </property>
+                      <property name="text">
+                       <string>No Preview</string>
+                      </property>
+                     </widget>
+                    </item>
+                   </layout>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <widget class="QLabel" name="lbl_ai_summary">
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="styleSheet">
+                  <string>font-weight:600;</string>
+                 </property>
+                 <property name="wordWrap">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="layout_basic_actions">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <item>
+                  <widget class="QPushButton" name="btn_test_connection">
+                   <property name="text">
+                    <string>Test Connection</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btn_start_device">
+                   <property name="text">
+                    <string>▶  Start</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btn_stop_device">
+                   <property name="text">
+                    <string>■  Stop</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer>
+                   <property name="orientation">
+                    <enum>Qt::Vertical</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <spacer>
+                 <property name="orientation">
+                  <enum>Qt::Vertical</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>20</width>
+                   <height>116</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </widget>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_ai">
+          <attribute name="title">
+           <string>AI</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="layout_tab_ai">
+           <property name="spacing">
+            <number>12</number>
+           </property>
+           <property name="contentsMargins" stdset="0">
+            <number>12</number>
+           </property>
+           <item>
+            <widget class="QScrollArea" name="scroll_ai">
+             <property name="frameShape">
+              <enum>QFrame::NoFrame</enum>
+             </property>
+             <property name="widgetResizable">
+              <bool>true</bool>
+             </property>
+             <widget class="QWidget" name="scroll_ai_contents">
+              <property name="geometry">
+               <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>803</width>
+                <height>700</height>
+               </rect>
+              </property>
+              <layout class="QVBoxLayout" name="layout_ai_scroll">
+               <property name="spacing">
+                <number>12</number>
+               </property>
+               <property name="contentsMargins" stdset="0">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QGroupBox" name="group_ai_enable">
+                 <property name="title">
+                  <string>AI Processing</string>
+                 </property>
+                 <layout class="QFormLayout" name="form_ai_enable">
+                  <property name="horizontalSpacing">
+                   <number>12</number>
+                  </property>
+                  <property name="verticalSpacing">
+                   <number>8</number>
+                  </property>
+                  <property name="contentsMargins" stdset="0">
+                   <number>12</number>
+                  </property>
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="lbl_enable_ai">
+                    <property name="text">
+                     <string>Enable AI</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QCheckBox" name="check_enable_ai">
+                    <property name="text">
+                     <string/>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="lbl_ai_fps_limit">
+                    <property name="text">
+                     <string>AI FPS Limit</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QSpinBox" name="spin_ai_fps_limit">
+                    <property name="minimum">
+                     <number>1</number>
+                    </property>
+                    <property name="maximum">
+                     <number>60</number>
+                    </property>
+                    <property name="value">
+                     <number>10</number>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
+                   <widget class="QLabel" name="lbl_inference_quality">
+                    <property name="text">
+                     <string>Detection Quality</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="1">
+                   <widget class="QComboBox" name="combo_inference_quality">
+                    <property name="toolTip">
+                     <string>Kích thước ảnh đưa vào model AI (pose/PPE/fire/fall) - không ảnh hưởng resolution hiển thị. Fast/Balanced giúp mượt hơn nhiều khi chạy AI trên nhiều camera cùng lúc, đổi lại độ chính xác giảm nhẹ với người/vật nhỏ hoặc ở xa.</string>
+                    </property>
+                    <item>
+                     <property name="text">
+                      <string>Fast (320px - nhanh nhất)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Balanced (480px - khuyến nghị)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Accurate (640px - chính xác nhất)</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item>
+                <widget class="QGroupBox" name="group_ai_features">
+                 <property name="title">
+                  <string>AI Features (có thể chọn nhiều)</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="layout_ai_features">
+                  <property name="spacing">
+                   <number>6</number>
+                  </property>
+                  <property name="contentsMargins" stdset="0">
+                   <number>12</number>
+                  </property>
+                  <item>
+                   <widget class="QCheckBox" name="check_enable_counting">
+                    <property name="text">
+                     <string>Đếm người vào/ra  (cần vẽ Counting Line)</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QCheckBox" name="check_enable_occupancy">
+                    <property name="text">
+                     <string>Giám sát số người hiện tại - Occupancy  (nên có ROI)</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QCheckBox" name="check_enable_ppe">
+                    <property name="text">
+                     <string>Giám sát đồ bảo hộ - PPE  (cần vẽ ROI)</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QCheckBox" name="check_enable_fire">
+                    <property name="text">
+                     <string>Phát hiện cháy - Fire Detection</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QCheckBox" name="check_enable_fall">
+                    <property name="text">
+                     <string>Phát hiện té ngã - Fall Detection</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QCheckBox" name="check_enable_face_recognition">
+                    <property name="text">
+                     <string>Nhận diện gương mặt - cảnh báo người lạ / thông báo người quen</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <layout class="QHBoxLayout" name="layout_known_faces">
+                    <item>
+                     <widget class="QPushButton" name="btn_refresh_known_faces">
+                      <property name="text">
+                       <string>🔄  Refresh Known Faces</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QLabel" name="lbl_known_faces_status">
+                      <property name="text">
+                       <string>Known faces: chưa tải</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <spacer>
+                      <property name="orientation">
+                       <enum>Qt::Horizontal</enum>
+                      </property>
+                      <property name="sizeHint" stdset="0">
+                       <size>
+                        <width>40</width>
+                        <height>20</height>
+                       </size>
+                      </property>
+                     </spacer>
+                    </item>
+                   </layout>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_ai_feature_hint">
+                    <property name="text">
+                     <string>Đếm vào/ra và Occupancy/PPE cần vẽ Counting Line / ROI ở tab ROI (nút "Open ROI Editor") thì mới có tác dụng.</string>
+                    </property>
+                    <property name="wordWrap">
+                     <bool>true</bool>
+                    </property>
+                    <property name="styleSheet">
+                     <string>color: #888888;</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="layout_ai_pipeline_btn">
+                 <item>
+                  <widget class="QPushButton" name="btn_open_pipeline_config">
+                   <property name="text">
+                    <string>⚙  Open Pipeline Config</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer>
+                   <property name="orientation">
+                    <enum>Qt::Vertical</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <spacer>
+                 <property name="orientation">
+                  <enum>Qt::Vertical</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>20</width>
+                   <height>40</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </widget>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_roi">
+          <attribute name="title">
+           <string>ROI</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="layout_tab_roi">
+           <property name="spacing">
+            <number>12</number>
+           </property>
+           <property name="contentsMargins" stdset="0">
+            <number>12</number>
+           </property>
+           <item>
+            <widget class="QFrame" name="frame_roi_preview">
+             <property name="frameShape">
+              <enum>QFrame::NoFrame</enum>
+             </property>
+             <layout class="QVBoxLayout" name="layout_roi_preview_inner">
+              <item>
+               <widget class="QLabel" name="lbl_roi_preview_placeholder">
+                <property name="text">
+                 <string>Bấm "Open ROI Editor…" để vẽ trực tiếp ROI/Counting Line lên hình camera</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="group_roi_list">
+             <property name="title">
+              <string>Regions of Interest</string>
+             </property>
+             <layout class="QVBoxLayout" name="layout_roi_list_group">
+              <property name="spacing">
+               <number>8</number>
+              </property>
+              <property name="contentsMargins" stdset="0">
+               <number>8</number>
+              </property>
+              <item>
+               <widget class="QPushButton" name="btn_open_roi_editor">
+                <property name="text">
+                 <string>✏  Open ROI Editor…</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QListWidget" name="list_roi">
+                <property name="alternatingRowColors">
+                 <bool>true</bool>
+                </property>
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="toolTip">
+                 <string>Danh sách chỉ để xem - vẽ/sửa/xoá qua ROI Editor</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="group_counting_line">
+             <property name="title">
+              <string>Counting Line (đếm người vào/ra)</string>
+             </property>
+             <layout class="QVBoxLayout" name="layout_counting_line_group">
+              <property name="spacing">
+               <number>8</number>
+              </property>
+              <property name="contentsMargins" stdset="0">
+               <number>8</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="lbl_counting_line_status">
+                <property name="text">
+                 <string>Chưa đặt</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <spacer>
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>40</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_trigger">
+          <attribute name="title">
+           <string>Trigger</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="layout_tab_trigger">
+           <property name="spacing">
+            <number>12</number>
+           </property>
+           <property name="contentsMargins" stdset="0">
+            <number>12</number>
+           </property>
+           <item>
+            <layout class="QHBoxLayout" name="layout_trigger_enable">
+             <property name="spacing">
+              <number>8</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="lbl_enable_trigger">
+               <property name="text">
+                <string>Enable Trigger</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="check_enable_trigger">
+               <property name="text">
+                <string/>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer>
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="group_trigger_rules">
+             <property name="title">
+              <string>Trigger Rules</string>
+             </property>
+             <layout class="QVBoxLayout" name="layout_trigger_rules_group">
+              <property name="spacing">
+               <number>8</number>
+              </property>
+              <property name="contentsMargins" stdset="0">
+               <number>8</number>
+              </property>
+              <item>
+               <layout class="QHBoxLayout" name="layout_trigger_buttons">
+                <property name="spacing">
+                 <number>8</number>
+                </property>
+                <item>
+                 <widget class="QPushButton" name="btn_add_trigger_rule">
+                  <property name="text">
+                   <string>＋  Add Rule</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btn_edit_trigger_rule">
+                  <property name="text">
+                   <string>✏  Edit Rule</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btn_delete_trigger_rule">
+                  <property name="text">
+                   <string>🗑  Delete Rule</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer>
+                  <property name="orientation">
+                   <enum>Qt::Vertical</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <widget class="QListWidget" name="list_trigger_rules">
+                <property name="alternatingRowColors">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="lbl_trigger_note">
+                <property name="text">
+                 <string>Double-click a rule to edit it in the Rule Editor dialog.</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <spacer>
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>40</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_recording">
+          <attribute name="title">
+           <string>Recording</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="layout_tab_recording">
+           <property name="spacing">
+            <number>12</number>
+           </property>
+           <property name="contentsMargins" stdset="0">
+            <number>12</number>
+           </property>
+           <item>
+            <widget class="QGroupBox" name="group_recording">
+             <property name="title">
+              <string>Recording Settings</string>
+             </property>
+             <layout class="QFormLayout" name="form_recording">
+              <property name="labelAlignment">
+               <set>Qt::AlignLeading</set>
+              </property>
+              <property name="horizontalSpacing">
+               <number>12</number>
+              </property>
+              <property name="verticalSpacing">
+               <number>10</number>
+              </property>
+              <property name="contentsMargins" stdset="0">
+               <number>12</number>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="lbl_enable_recording">
+                <property name="text">
+                 <string>Enable Recording</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QCheckBox" name="check_enable_recording">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="lbl_recording_mode">
+                <property name="text">
+                 <string>Recording Mode</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QComboBox" name="combo_recording_mode">
+                <item>
+                 <property name="text">
+                  <string>Continuous</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>On Motion</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>On Trigger</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Scheduled</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="lbl_save_path">
+                <property name="text">
+                 <string>Save Path</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <layout class="QHBoxLayout" name="layout_save_path">
+                <property name="spacing">
+                 <number>6</number>
+                </property>
+                <item>
+                 <widget class="QLineEdit" name="edit_save_path">
+                  <property name="placeholderText">
+                   <string>/recordings/cam_01/</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btn_browse_save_path">
+                  <property name="text">
+                   <string>Browse…</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="lbl_retention_days">
+                <property name="text">
+                 <string>Retention (days)</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QSpinBox" name="spin_retention_days">
+                <property name="minimum">
+                 <number>1</number>
+                </property>
+                <property name="maximum">
+                 <number>365</number>
+                </property>
+                <property name="value">
+                 <number>30</number>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="layout_schedule_btn">
+             <item>
+              <widget class="QPushButton" name="btn_open_schedule_config">
+               <property name="text">
+                <string>📅  Schedule Config…</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer>
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <spacer>
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>40</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_overlay">
+          <attribute name="title">
+           <string>Overlay</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="layout_tab_overlay">
+           <property name="spacing">
+            <number>12</number>
+           </property>
+           <property name="contentsMargins" stdset="0">
+            <number>12</number>
+           </property>
+           <item>
+            <widget class="QGroupBox" name="group_overlay">
+             <property name="title">
+              <string>Overlay Visibility</string>
+             </property>
+             <layout class="QFormLayout" name="form_overlay">
+              <property name="labelAlignment">
+               <set>Qt::AlignLeading</set>
+              </property>
+              <property name="horizontalSpacing">
+               <number>12</number>
+              </property>
+              <property name="verticalSpacing">
+               <number>10</number>
+              </property>
+              <property name="contentsMargins" stdset="0">
+               <number>12</number>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="lbl_show_bbox">
+                <property name="text">
+                 <string>Show Bounding Box</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QCheckBox" name="check_show_bbox">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="lbl_show_label">
+                <property name="text">
+                 <string>Show Label</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QCheckBox" name="check_show_label">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="lbl_show_confidence">
+                <property name="text">
+                 <string>Show Confidence</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QCheckBox" name="check_show_confidence">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="lbl_show_roi">
+                <property name="text">
+                 <string>Show ROI</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QCheckBox" name="check_show_roi">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="lbl_show_tracking_id">
+                <property name="text">
+                 <string>Show Tracking ID</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QCheckBox" name="check_show_tracking_id">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="layout_overlay_btn">
+             <item>
+              <widget class="QPushButton" name="btn_open_overlay_settings">
+               <property name="text">
+                <string>🎨  Overlay Settings…</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer>
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <spacer>
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>40</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_advanced">
+          <attribute name="title">
+           <string>Advanced</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="layout_tab_advanced">
+           <property name="spacing">
+            <number>12</number>
+           </property>
+           <property name="contentsMargins" stdset="0">
+            <number>12</number>
+           </property>
+           <item>
+            <widget class="QScrollArea" name="scroll_advanced">
+             <property name="frameShape">
+              <enum>QFrame::NoFrame</enum>
+             </property>
+             <property name="widgetResizable">
+              <bool>true</bool>
+             </property>
+             <widget class="QWidget" name="scroll_advanced_contents">
+              <property name="geometry">
+               <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>803</width>
+                <height>700</height>
+               </rect>
+              </property>
+              <layout class="QVBoxLayout" name="layout_advanced_scroll">
+               <property name="spacing">
+                <number>12</number>
+               </property>
+               <property name="contentsMargins" stdset="0">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QGroupBox" name="group_adv_pipeline">
+                 <property name="title">
+                  <string>Pipeline</string>
+                 </property>
+                 <layout class="QFormLayout" name="form_adv_pipeline">
+                  <property name="labelAlignment">
+                   <set>Qt::AlignLeading</set>
+                  </property>
+                  <property name="horizontalSpacing">
+                   <number>12</number>
+                  </property>
+                  <property name="verticalSpacing">
+                   <number>8</number>
+                  </property>
+                  <property name="contentsMargins" stdset="0">
+                   <number>12</number>
+                  </property>
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="lbl_frame_queue_size">
+                    <property name="text">
+                     <string>Frame Queue Size</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QSpinBox" name="spin_frame_queue_size">
+                    <property name="minimum">
+                     <number>1</number>
+                    </property>
+                    <property name="maximum">
+                     <number>512</number>
+                    </property>
+                    <property name="value">
+                     <number>32</number>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="lbl_reconnect_timeout">
+                    <property name="text">
+                     <string>Reconnect Timeout (s)</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QSpinBox" name="spin_reconnect_timeout">
+                    <property name="minimum">
+                     <number>1</number>
+                    </property>
+                    <property name="maximum">
+                     <number>300</number>
+                    </property>
+                    <property name="value">
+                     <number>10</number>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item>
+                <widget class="QGroupBox" name="group_adv_hardware">
+                 <property name="title">
+                  <string>Hardware &amp; Decoder</string>
+                 </property>
+                 <layout class="QFormLayout" name="form_adv_hardware">
+                  <property name="labelAlignment">
+                   <set>Qt::AlignLeading</set>
+                  </property>
+                  <property name="horizontalSpacing">
+                   <number>12</number>
+                  </property>
+                  <property name="verticalSpacing">
+                   <number>8</number>
+                  </property>
+                  <property name="contentsMargins" stdset="0">
+                   <number>12</number>
+                  </property>
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="lbl_decoder_backend">
+                    <property name="text">
+                     <string>Decoder Backend</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QComboBox" name="combo_decoder_backend">
+                    <item>
+                     <property name="text">
+                      <string>CPU (FFmpeg)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>CUDA (NVDEC)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>OpenCL</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>VAAPI</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>VideoToolbox</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="lbl_hw_accel">
+                    <property name="text">
+                     <string>Hardware Acceleration</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QCheckBox" name="check_hw_accel">
+                    <property name="text">
+                     <string/>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
+                   <widget class="QLabel" name="lbl_gpu_device">
+                    <property name="text">
+                     <string>GPU Device</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="1">
+                   <widget class="QComboBox" name="combo_gpu_device">
+                    <item>
+                     <property name="text">
+                      <string>GPU 0 (default)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>GPU 1</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>CPU Fallback</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item>
+                <spacer>
+                 <property name="orientation">
+                  <enum>Qt::Vertical</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>20</width>
+                   <height>40</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </widget>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="frame_action_bar">
+         <property name="frameShape">
+          <enum>QFrame::NoFrame</enum>
+         </property>
+         <layout class="QHBoxLayout" name="layout_action_bar">
+          <property name="spacing">
+           <number>8</number>
+          </property>
+          <property name="contentsMargins" stdset="0">
+           <number>6</number>
+          </property>
+          <item>
+           <widget class="QPushButton" name="btn_save">
+            <property name="text">
+             <string>💾  Save</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_apply">
+            <property name="text">
+             <string>✔  Apply</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_reset">
+            <property name="text">
+             <string>↺  Reset</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer>
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_export_config">
+            <property name="text">
+             <string>↑  Export Config</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_import_config">
+            <property name="text">
+             <string>↓  Import Config</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

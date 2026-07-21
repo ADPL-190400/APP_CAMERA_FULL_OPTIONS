@@ -1,0 +1,278 @@
+[
+  {
+    "id": "3aba6f1a",
+    "name": "Camera Face",
+    "device_type": "USB",
+    "vendor": "Unknown",
+    "ip_address": "",
+    "port": 554,
+    "usb_index": 0,
+    "stream_url": "",
+    "substream_url": "",
+    "use_substream": true,
+    "serial_no": "USB-0",
+    "mac_address": "",
+    "resolution": "3840×2160  (4K)",
+    "fps": 30,
+    "status": "Online",
+    "is_running": false,
+    "ai": {
+      "enabled": false,
+      "ai_fps_limit": 3,
+      "enable_counting": false,
+      "enable_occupancy": false,
+      "enable_ppe": false,
+      "enable_fire": false,
+      "enable_fall": false,
+      "enable_face_recognition": false,
+      "inference_quality": "Balanced (480px - khuyến nghị)"
+    },
+    "recording": {
+      "enabled": false,
+      "mode": "Continuous",
+      "save_path": "",
+      "retention_days": 30
+    },
+    "overlay": {
+      "show_bbox": true,
+      "show_label": false,
+      "show_confidence": false,
+      "show_roi": false,
+      "show_tracking_id": false
+    },
+    "advanced": {
+      "frame_queue_size": 32,
+      "reconnect_timeout": 10,
+      "decoder_backend": "CPU (FFmpeg)",
+      "hw_accel": false,
+      "gpu_device": "GPU 0 (default)"
+    },
+    "roi_regions": [],
+    "trigger_rules": [],
+    "counting_line": "503,927;3824,1048"
+  },
+  {
+    "id": "5b6aff7f",
+    "name": "Camera IP Face",
+    "device_type": "IP",
+    "vendor": "Unknown",
+    "ip_address": "192.168.1.212",
+    "port": 554,
+    "usb_index": 0,
+    "stream_url": "rtsp://admin:Admin@123@192.168.1.212:554/cam/realmonitor?channel=1&subtype=0",
+    "substream_url": "",
+    "use_substream": false,
+    "serial_no": "",
+    "mac_address": "38:AF:29:67:97:F4",
+    "resolution": "1920×1080  (1080p)",
+    "fps": 10,
+    "status": "Online",
+    "is_running": false,
+    "ai": {
+      "enabled": true,
+      "ai_fps_limit": 5,
+      "enable_counting": false,
+      "enable_occupancy": false,
+      "enable_ppe": false,
+      "enable_fire": false,
+      "enable_fall": false,
+      "enable_face_recognition": false,
+      "inference_quality": "Balanced (480px - khuyến nghị)"
+    },
+    "recording": {
+      "enabled": false,
+      "mode": "Continuous",
+      "save_path": "",
+      "retention_days": 30
+    },
+    "overlay": {
+      "show_bbox": true,
+      "show_label": true,
+      "show_confidence": false,
+      "show_roi": false,
+      "show_tracking_id": false
+    },
+    "advanced": {
+      "frame_queue_size": 32,
+      "reconnect_timeout": 10,
+      "decoder_backend": "CPU (FFmpeg)",
+      "hw_accel": false,
+      "gpu_device": "GPU 0 (default)"
+    },
+    "roi_regions": [
+      {
+        "name": "ROI 1",
+        "points": "312,60;73,744;107,1020;1859,1035;1872,28"
+      }
+    ],
+    "trigger_rules": [],
+    "counting_line": "275,623;1807,351"
+  },
+  {
+    "id": "9d31ca83",
+    "name": "Quán ăn",
+    "device_type": "IP",
+    "vendor": "Hikvision",
+    "ip_address": "222.253.41.56",
+    "port": 554,
+    "usb_index": 0,
+    "stream_url": "rtsp://admin:Admin@123@222.253.41.56:554/cam/realmonitor?channel=1&subtype=0",
+    "substream_url": "rtsp://admin:Admin@123@222.253.41.56:554/cam/realmonitor?channel=1&subtype=1",
+    "use_substream": false,
+    "serial_no": "",
+    "mac_address": "",
+    "resolution": "1920×1080  (1080p)",
+    "fps": 33,
+    "status": "Online",
+    "is_running": true,
+    "ai": {
+      "enabled": true,
+      "ai_fps_limit": 10,
+      "enable_counting": false,
+      "enable_occupancy": true,
+      "enable_ppe": true,
+      "enable_fire": false,
+      "enable_fall": false,
+      "enable_face_recognition": false,
+      "inference_quality": "Accurate (640px - chính xác nhất)"
+    },
+    "recording": {
+      "enabled": false,
+      "mode": "On Trigger",
+      "save_path": "",
+      "retention_days": 30
+    },
+    "overlay": {
+      "show_bbox": true,
+      "show_label": false,
+      "show_confidence": false,
+      "show_roi": true,
+      "show_tracking_id": false
+    },
+    "advanced": {
+      "frame_queue_size": 32,
+      "reconnect_timeout": 10,
+      "decoder_backend": "CPU (FFmpeg)",
+      "hw_accel": false,
+      "gpu_device": "GPU 0 (default)"
+    },
+    "roi_regions": [
+      {
+        "name": "ROI 1",
+        "points": "1281,59;72,622;12,1271;2190,1249;2244,226;1753,27"
+      }
+    ],
+    "trigger_rules": [
+      {
+        "name": "Rule",
+        "condition": "person count in ROI 1> 60",
+        "action": "record 10s"
+      }
+    ],
+    "counting_line": "1403,490;2200,714"
+  },
+  {
+    "id": "33d207b2",
+    "name": "SG 9",
+    "device_type": "IP",
+    "vendor": "Unknown",
+    "ip_address": "192.168.1.209",
+    "port": 554,
+    "usb_index": 0,
+    "stream_url": "rtsp://admin:456Q@z789@saigon9.vncctv.org:554/Streaming/Channels/101",
+    "substream_url": "rtsp://admin:456Q@z789@saigon9.vncctv.org:554/Streaming/Channels/102",
+    "use_substream": false,
+    "serial_no": "",
+    "mac_address": "",
+    "resolution": "1920×1080  (1080p)",
+    "fps": 30,
+    "status": "Offline",
+    "is_running": false,
+    "ai": {
+      "enabled": true,
+      "ai_fps_limit": 10,
+      "enable_counting": false,
+      "enable_occupancy": true,
+      "enable_ppe": false,
+      "enable_fire": false,
+      "enable_fall": false,
+      "enable_face_recognition": false,
+      "inference_quality": "Accurate (640px - chính xác nhất)"
+    },
+    "recording": {
+      "enabled": false,
+      "mode": "Continuous",
+      "save_path": "",
+      "retention_days": 30
+    },
+    "overlay": {
+      "show_bbox": true,
+      "show_label": true,
+      "show_confidence": false,
+      "show_roi": false,
+      "show_tracking_id": false
+    },
+    "advanced": {
+      "frame_queue_size": 32,
+      "reconnect_timeout": 10,
+      "decoder_backend": "CPU (FFmpeg)",
+      "hw_accel": false,
+      "gpu_device": "GPU 0 (default)"
+    },
+    "roi_regions": [],
+    "trigger_rules": [],
+    "counting_line": ""
+  },
+  {
+    "id": "e726f0ed",
+    "name": "VP VN",
+    "device_type": "IP",
+    "vendor": "Unknown",
+    "ip_address": "192.168.1.209",
+    "port": 554,
+    "usb_index": 0,
+    "stream_url": "rtsp://admin:HD@13579@@iottelecom.vncctv.info:554/Streaming/Channels/101",
+    "substream_url": "rtsp://admin:HD@13579@@iottelecom.vncctv.info:554/Streaming/Channels/102",
+    "use_substream": false,
+    "serial_no": "",
+    "mac_address": "",
+    "resolution": "1920×1080  (1080p)",
+    "fps": 25,
+    "status": "Offline",
+    "is_running": false,
+    "ai": {
+      "enabled": true,
+      "ai_fps_limit": 2,
+      "enable_counting": false,
+      "enable_occupancy": true,
+      "enable_ppe": false,
+      "enable_fire": false,
+      "enable_fall": false,
+      "enable_face_recognition": false,
+      "inference_quality": "Balanced (480px - khuyến nghị)"
+    },
+    "recording": {
+      "enabled": false,
+      "mode": "Continuous",
+      "save_path": "",
+      "retention_days": 30
+    },
+    "overlay": {
+      "show_bbox": true,
+      "show_label": false,
+      "show_confidence": false,
+      "show_roi": false,
+      "show_tracking_id": false
+    },
+    "advanced": {
+      "frame_queue_size": 32,
+      "reconnect_timeout": 10,
+      "decoder_backend": "CPU (FFmpeg)",
+      "hw_accel": false,
+      "gpu_device": "GPU 0 (default)"
+    },
+    "roi_regions": [],
+    "trigger_rules": [],
+    "counting_line": ""
+  }
+]

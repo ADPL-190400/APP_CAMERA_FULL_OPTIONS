@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>EventLogPage</class>
+ <widget class="QWidget" name="EventLogPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1400</width>
+    <height>900</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="layout_root">
+   <property name="spacing">
+    <number>12</number>
+   </property>
+   <property name="leftMargin">
+    <number>16</number>
+   </property>
+   <property name="topMargin">
+    <number>16</number>
+   </property>
+   <property name="rightMargin">
+    <number>16</number>
+   </property>
+   <property name="bottomMargin">
+    <number>16</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="layout_toolbar">
+     <item>
+      <widget class="QLabel" name="lbl_title">
+       <property name="styleSheet">
+        <string notr="true">font-size: 18px; font-weight: 700;</string>
+       </property>
+       <property name="text">
+        <string>Event Log</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer_toolbar">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QComboBox" name="combo_filter_camera">
+       <item>
+        <property name="text">
+         <string>Tất cả camera</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="combo_filter_kind">
+       <item>
+        <property name="text">
+         <string>Tất cả loại</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>PPE vi phạm</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>Cháy / Khói</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>Té ngã</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>Người lạ</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="combo_filter_time">
+       <item>
+        <property name="text">
+         <string>Toàn bộ thời gian</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>Hôm nay</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>7 ngày gần đây</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>30 ngày gần đây</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_refresh_event_log">
+       <property name="text">
+        <string>↻  Làm mới</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="lbl_event_count">
+     <property name="text">
+      <string>0 sự kiện</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTableWidget" name="table_events">
+     <property name="columnCount">
+      <number>4</number>
+     </property>
+     <property name="selectionBehavior">
+      <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+     </property>
+     <property name="editTriggers">
+      <enum>QAbstractItemView::EditTrigger::NoEditTriggers</enum>
+     </property>
+     <property name="alternatingRowColors">
+      <bool>true</bool>
+     </property>
+     <attribute name="horizontalHeaderStretchLastSection">
+      <bool>true</bool>
+     </attribute>
+     <column>
+      <property name="text">
+       <string>Ảnh</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>Thời gian</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>Camera</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>Loại cảnh báo</string>
+      </property>
+     </column>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

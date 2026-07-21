@@ -1,0 +1,9 @@
+<RCC>
+  <qresource prefix="img">
+    <file>static/img/login.jpg</file>
+  </qresource>
+  <qresource prefix="icon">
+    <file>static/icon/hide-password-16.png</file>
+    <file>static/icon/show-password-3-16.png</file>
+  </qresource>
+</RCC>
