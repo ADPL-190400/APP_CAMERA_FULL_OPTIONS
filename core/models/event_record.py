@@ -24,6 +24,19 @@ EVENT_KIND_LABELS: dict[EventKind, str] = {
     EventKind.STRANGER_ALERT: "Người lạ",
 }
 
+# kind -> type_id gửi kèm Web_API.send_mobile_incident() - đã xác nhận với
+# backend (khớp quy ước type_id của D:\APP_MIRAI_ver1, PPE chỉnh lại thành
+# 1 - không dùng số 5 "PPE Compliance Check" ở 1 code path khác của MIRAI,
+# đã xác nhận là không áp dụng). 1 nguồn sự thật duy nhất cho type_id, dùng
+# chung cả core/camera_pipeline.py lẫn pages/gate_kiosk_page.py (stranger
+# băng qua vạch) - tránh rải số ma thuật rời rạc như MIRAI.
+EVENT_KIND_INCIDENT_TYPE_ID: dict[EventKind, int] = {
+    EventKind.PPE_VIOLATION: 1,
+    EventKind.STRANGER_ALERT: 2,
+    EventKind.FALL_ALERT: 3,
+    EventKind.FIRE_ALERT: 4,
+}
+
 
 @dataclass
 class EventRecord:

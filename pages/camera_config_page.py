@@ -21,6 +21,7 @@ from core.path_manager import BASE_DIR
 from core.device_manager import DeviceManager
 from core.known_faces_store import KnownFacesStore
 from core.network_utils import is_ip_camera_reachable
+from scr import Web_API
 from core.models.camera_device import (
     CameraDevice,
     DeviceStatus,
@@ -134,6 +135,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         self.edit_camera_id.setText(device.id)
         self.combo_vendor.setCurrentText(device.vendor)
         self.edit_ip_address.setText(device.ip_address)
+        self.edit_mac_address.setText(device.mac_address)
         self.edit_stream_url.setText(device.stream_url)
         self.edit_substream_url.setText(device.substream_url)
         self.check_use_substream.setChecked(device.use_substream)
@@ -195,6 +197,7 @@ class CameraConfigPage(QtWidgets.QWidget):
             name=self.edit_camera_name.text().strip(),
             vendor=self.combo_vendor.currentText(),
             ip_address=self.edit_ip_address.text().strip(),
+            mac_address=self.edit_mac_address.text().strip(),
             stream_url=self.edit_stream_url.text().strip(),
             substream_url=self.edit_substream_url.text().strip(),
             use_substream=self.check_use_substream.isChecked(),
@@ -262,11 +265,28 @@ class CameraConfigPage(QtWidgets.QWidget):
             return False
 
         updates = self._collect_form_updates()
+        updates["web_camera_id"] = self._resolve_web_camera_id(updates["mac_address"])
         device = self._current_device()
         if device is not None:
             self._warn_ai_feature_prereqs(updates["ai"], device)
         self.device_manager.update_device(self.current_device_id, **updates)
         return True
+
+    @staticmethod
+    def _resolve_web_camera_id(mac_address: str) -> str:
+        """Tra camera_id THẬT của server ứng với MAC vừa nhập (Web_API.
+        resolve_camera_id, có cache theo MAC) - chạy ngay lúc Save/Apply
+        (blocking UI 1 chút, chấp nhận được vì đây là hành động bấm nút chủ
+        động, giống lúc get_api() block lúc đăng nhập), rồi LƯU LẠI kết quả
+        vào CameraDevice.web_camera_id - CameraPipeline/gate kiosk chỉ đọc
+        giá trị đã lưu này, không tự gọi mạng nữa lúc gửi sự kiện. MAC rỗng
+        hoặc chưa tra được (web chưa có camera này/mất mạng) -> rỗng, camera
+        đó tạm thời không gửi sự kiện lên web cho tới lần Save kế tiếp
+        (không tự retry nền)."""
+        if not mac_address:
+            return ""
+        camera_id = Web_API.resolve_camera_id(mac_address)
+        return str(camera_id) if camera_id is not None else ""
 
     def _warn_ai_feature_prereqs(self, ai: AIConfig, device: CameraDevice) -> None:
         """Cảnh báo NHẸ (không chặn Save) nếu bật tính năng AI nhưng chưa vẽ

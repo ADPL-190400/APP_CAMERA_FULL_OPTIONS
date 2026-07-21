@@ -2,6 +2,7 @@ from PyQt6 import uic
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QLineEdit
 from pages.menu_window import MenuWindow
 from scr import Web_API
+from core.account_context import set_current_account
 from core.known_faces_store import KnownFacesStore
 from core.path_manager import BASE_DIR
 import os
@@ -36,6 +37,12 @@ class LoginPage(QMainWindow):
 
         is_login = Web_API.get_api(user,pw)
         if is_login:
+            # Đặt account context TRƯỚC khi MenuWindow (và các page con) được
+            # tạo - DeviceManager/EventStore/gate_config chỉ thực sự load từ
+            # đĩa lúc singleton .instance() được gọi lần đầu, xảy ra bên
+            # trong accept_login() bên dưới. Dùng đúng "user" (email THẬT đã
+            # đăng nhập), không phải "entered_user" (chỉ để hiển thị tên).
+            set_current_account(user)
             self.accept_login(entered_user)
         else:
             print('Dang nhap khong thanh cong')

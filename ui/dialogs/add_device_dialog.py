@@ -33,6 +33,14 @@ class AddDeviceDialog(QtWidgets.QDialog):
         self.edit_ip.setPlaceholderText("192.168.1.100")
         layout.addRow("IP Address", self.edit_ip)
 
+        self.edit_mac = QtWidgets.QLineEdit()
+        self.edit_mac.setPlaceholderText("AA:BB:CC:DD:EE:FF")
+        self.edit_mac.setToolTip(
+            "Định danh camera này bên web server - để trống nếu chưa biết, "
+            "có thể nhập/sửa sau ở Camera Config."
+        )
+        layout.addRow("MAC Address", self.edit_mac)
+
         self.edit_stream_url = QtWidgets.QLineEdit()
         self.edit_stream_url.setPlaceholderText("rtsp://user:pass@192.168.1.100/stream")
         layout.addRow("Stream URL", self.edit_stream_url)
@@ -64,6 +72,7 @@ class AddDeviceDialog(QtWidgets.QDialog):
             device_type=device_type,
             vendor=self.combo_vendor.currentText(),
             ip_address=self.edit_ip.text().strip(),
+            mac_address=self.edit_mac.text().strip(),
             stream_url=self.edit_stream_url.text().strip(),
             usb_index=self.spin_usb_index.value(),
         )

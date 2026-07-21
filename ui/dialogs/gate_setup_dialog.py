@@ -1,9 +1,12 @@
-"""GateSetupDialog: chọn 1 camera ĐÃ ĐĂNG KÝ cho 1 cửa sổ gate kiosk (Check
-In/Check Out - pages/gate_kiosk_page.py::GateWindow). KHÔNG vẽ vạch/mở
-camera riêng ở đây - việc thêm camera, vẽ Counting Line (tab ROI) và bật
-chạy (Start) đã có sẵn ở Camera Config/Device Management; dialog này chỉ
-kiểm tra camera đã chọn có đủ điều kiện chưa (đang chạy + đã có vạch) và báo
-cho người dùng nếu thiếu, không tự làm thay."""
+"""GateSetupDialog: chọn 1 camera ĐÃ ĐĂNG KÝ cho 1 cửa sổ kiosk (Check In/
+Check Out - pages/gate_kiosk_page.py::GateWindow - LẪN Face App -
+pages/face_attendance_page.py::FaceAttendanceWindow, dùng chung 1 dialog).
+KHÔNG vẽ vạch/mở camera riêng ở đây - việc thêm camera, vẽ Counting Line
+(tab ROI) và bật chạy (Start) đã có sẵn ở Camera Config/Device Management;
+dialog này chỉ kiểm tra camera đã chọn có đủ điều kiện chưa (tuỳ theo
+require_running/require_counting_line - Gate kiosk cần cả 2, Face App tự mở
+camera riêng nên không cần cái nào) và báo cho người dùng nếu thiếu, không tự
+làm thay."""
 from __future__ import annotations
 
 from typing import Optional
@@ -15,10 +18,18 @@ from core.models.camera_device import CameraDevice, parse_points
 
 
 class GateSetupDialog(QtWidgets.QDialog):
-    def __init__(self, title: str, parent=None):
+    def __init__(
+        self,
+        title: str,
+        parent=None,
+        require_running: bool = True,
+        require_counting_line: bool = True,
+    ):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(420)
+        self._require_running = require_running
+        self._require_counting_line = require_counting_line
 
         self._device: Optional[CameraDevice] = None
         self._build_ui()
@@ -27,7 +38,10 @@ class GateSetupDialog(QtWidgets.QDialog):
     def _build_ui(self) -> None:
         layout = QtWidgets.QVBoxLayout(self)
 
-        layout.addWidget(QtWidgets.QLabel("Chọn camera (đã cấu hình Counting Line ở Camera Config > ROI):"))
+        hint_text = "Chọn camera"
+        if self._require_counting_line:
+            hint_text += " (đã cấu hình Counting Line ở Camera Config > ROI)"
+        layout.addWidget(QtWidgets.QLabel(hint_text + ":"))
 
         self.combo_device = QtWidgets.QComboBox()
         self.combo_device.currentIndexChanged.connect(self._refresh_hint)
@@ -65,12 +79,12 @@ class GateSetupDialog(QtWidgets.QDialog):
             )
             return
 
-        if not DeviceManager.instance().is_pipeline_running(device.id):
+        if self._require_running and not DeviceManager.instance().is_pipeline_running(device.id):
             self.lbl_hint.setText(
                 f"⚠ Camera \"{device.name}\" chưa được Start - vào Camera Config hoặc "
                 "Device Management để bật chạy trước."
             )
-        elif len(parse_points(device.counting_line)) != 2:
+        elif self._require_counting_line and len(parse_points(device.counting_line)) != 2:
             self.lbl_hint.setText(
                 f"⚠ Camera \"{device.name}\" chưa vẽ Counting Line - vào Camera Config > "
                 "tab ROI để vẽ vạch trước."
@@ -84,14 +98,14 @@ class GateSetupDialog(QtWidgets.QDialog):
         if device is None:
             QtWidgets.QMessageBox.warning(self, "Thiếu camera", "Chọn 1 camera trước.")
             return
-        if not DeviceManager.instance().is_pipeline_running(device.id):
+        if self._require_running and not DeviceManager.instance().is_pipeline_running(device.id):
             QtWidgets.QMessageBox.warning(
                 self, "Camera chưa chạy",
                 f"Camera \"{device.name}\" chưa được Start.\n"
                 "Vào Camera Config hoặc Device Management để bật chạy trước.",
             )
             return
-        if len(parse_points(device.counting_line)) != 2:
+        if self._require_counting_line and len(parse_points(device.counting_line)) != 2:
             QtWidgets.QMessageBox.warning(
                 self, "Chưa có vạch",
                 f"Camera \"{device.name}\" chưa vẽ Counting Line.\n"

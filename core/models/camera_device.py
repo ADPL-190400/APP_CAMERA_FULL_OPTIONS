@@ -196,6 +196,14 @@ class CameraDevice:
     use_substream: bool = True    # tick/bỏ tick để chuyển mainstream<->substream mà không mất URL đã lưu
     serial_no: str = ""
     mac_address: str = ""          # chỉ có với camera IP - tự lấy khi "Online Device" quét thấy (ARP)
+    # camera_id THẬT của server (khác id ở trên - đó là khoá nội bộ app) -
+    # tra 1 LẦN qua Web_API.resolve_camera_id(mac_address) lúc Save/Apply ở
+    # camera_config_page.py rồi lưu thẳng vào đây, để CameraPipeline/gate
+    # kiosk dùng lại ngay không cần gọi mạng mỗi lần gửi sự kiện. Rỗng =
+    # chưa nhập MAC, hoặc đã nhập nhưng chưa tra được (web chưa có camera
+    # này/mất mạng lúc Save) - không gửi sự kiện lên web cho tới khi có giá
+    # trị này.
+    web_camera_id: str = ""
 
     # --- Cấu hình stream (tab Basic) ---
     resolution: str = "1920×1080  (1080p)"

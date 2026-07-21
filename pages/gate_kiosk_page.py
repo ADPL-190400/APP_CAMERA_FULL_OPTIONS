@@ -51,6 +51,7 @@ from core.gate_config import GateKind, load_gate_config, save_gate_config
 from core.known_faces_store import KnownFacesStore
 from core.line_crossing import ccw, segments_intersect
 from core.models.camera_device import CameraDevice, parse_points
+from core.models.event_record import EVENT_KIND_INCIDENT_TYPE_ID, EventKind
 from core.path_manager import BASE_DIR
 from scr import Web_API
 from ui.dialogs.gate_setup_dialog import GateSetupDialog
@@ -133,6 +134,12 @@ class GateCaptureWorker(QThread):
         gate_camera_id: str,
         parent=None,
     ):
+        """gate_camera_id: CameraDevice.web_camera_id của camera đã chọn cho
+        cổng này (camera_id THẬT của server, đã tra + lưu sẵn lúc Save/Apply
+        ở camera_config_page.py - KHÔNG phải device.id nội bộ, cũng KHÔNG
+        phải MAC). Rỗng = camera chưa nhập MAC hoặc chưa tra được, worker vẫn
+        track/chấm công bình thường nhưng bỏ qua bước gửi Web_API (xem
+        _on_crossing)."""
         super().__init__(parent)
         self._line = (line_points[0], line_points[1])
         self._direction = direction
@@ -270,11 +277,25 @@ class GateCaptureWorker(QThread):
         now = datetime.now()
         self.crossing_event.emit({"employee": employee, "pixmap": pixmap, "ts": now})
 
-        if employee is not None:
-            try:
-                Web_API.send_mobile_employee(frame, employee["id"], self._gate_camera_id, now)
-            except Exception as exc:  # noqa: BLE001 - lỗi mạng không được làm crash worker
-                print(f"[Gate] Lỗi ghi nhận chấm công: {exc}")
+        # self._gate_camera_id = web_camera_id (camera_id THẬT của server,
+        # đã tra + lưu sẵn lúc Save/Apply ở camera_config_page.py) của camera
+        # đã chọn cho cổng này (đọc lúc GateWindow._start_watching tạo
+        # worker) - rỗng nghĩa là camera chưa nhập MAC/chưa tra được, bỏ qua
+        # bước gửi hoàn toàn (giữ nguyên hành vi local: gallery/thẻ ảnh vẫn
+        # hoạt động bình thường).
+        if not self._gate_camera_id:
+            return
+        camera_id = self._gate_camera_id
+        try:
+            if employee is not None:
+                Web_API.send_mobile_employee(frame, employee["id"], camera_id, now)
+            else:
+                details = f"Người lạ băng qua vạch - cổng {_DIRECTION_LABELS[self._direction][0]}"
+                Web_API.send_mobile_incident(
+                    frame, details, EVENT_KIND_INCIDENT_TYPE_ID[EventKind.STRANGER_ALERT], camera_id
+                )
+        except Exception as exc:  # noqa: BLE001 - lỗi mạng không được làm crash worker
+            print(f"[Gate] Lỗi gửi sự kiện lên web: {exc}")
 
     def _prune_tracks(self, active_ids: set[int]) -> None:
         for track_id in list(self._track_history):
@@ -513,7 +534,11 @@ class GateWindow(QtWidgets.QMainWindow):
             )
             return
 
-        self._worker = GateCaptureWorker(line_points, self._direction, device.id)
+        # device.web_camera_id (camera_id THẬT của server, không phải
+        # device.id nội bộ, cũng không phải MAC - xem GateCaptureWorker.__init__);
+        # rỗng nghĩa là camera chưa nhập MAC/chưa tra được, worker tự bỏ qua
+        # bước gửi web.
+        self._worker = GateCaptureWorker(line_points, self._direction, device.web_camera_id)
         self._worker.crossing_event.connect(self._on_crossing_event)
         self._worker.tracks_ready.connect(self.video_view.set_tracks)
         self._worker.start()
@@ -594,6 +619,19 @@ class GateWindow(QtWidgets.QMainWindow):
     def _scroll_gallery_to_end(self) -> None:
         bar = self.gallery_scroll.horizontalScrollBar()
         bar.setValue(bar.maximum())
+
+    # ── Mở lại sau khi đã Close 1 lần ───────────────────────────────────────
+    def showEvent(self, event) -> None:
+        """MenuWindow giữ GateWindow như singleton (chỉ tạo 1 lần, lần mở
+        sau chỉ show() lại - xem menu_window.py::_on_open_checkin/_out),
+        trong khi closeEvent() bên dưới đã dừng hẳn worker + unsubscribe
+        camera (self._device về None). Không tự nối lại ở đây thì mở lại
+        cửa sổ sẽ thấy video đứng im vĩnh viễn (cùng bug đã gặp ở Face App -
+        pages/face_attendance_page.py::showEvent)."""
+        super().showEvent(event)
+        if self._device is None:
+            if not self._start_from_saved_config():
+                self._open_setup()
 
     # ── Shutdown ─────────────────────────────────────────────────────────
     def closeEvent(self, event) -> None:

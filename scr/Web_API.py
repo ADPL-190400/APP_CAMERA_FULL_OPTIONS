@@ -115,6 +115,7 @@ def send_mobile_employee(frame_bgr,employee_id, camera_id,now):
             "check_time": check_time
         }
     
+    print("Data gửi:", employee_data)
     
     
 
@@ -189,11 +190,42 @@ def get_camera():
     print(res["data"])
 
 def get_camera_by_mac(mac):
-    # res = requests.get(get_url(f'camera?mac={mac}'), headers=headers, allow_redirects=False).json()
-    # print(res)
-    # if res.get('success', False):
-    #     return res['data']
+    res = requests.get(get_url(f'camera?mac={mac}'), headers=headers, allow_redirects=False).json()
+    print(res)
+    if res.get('success', False):
+        return res['data']
     return None
+
+
+# camera_id nội bộ server (dùng cho send_mobile_incident/send_mobile_employee)
+# ứng với 1 MAC - tra 1 LẦN qua get_camera_by_mac() rồi cache lại trong biến
+# module này, KHÔNG tra lại mỗi lần gửi sự kiện (tránh thêm 1 round-trip
+# mạng trước MỖI lần POST incident/attendance). None = mac rỗng hoặc chưa
+# tìm thấy camera khớp bên server (không tự retry - lần gọi kế tiếp vẫn trả
+# về None đã cache; muốn thử lại thì tự xoá key đó khỏi _camera_id_cache).
+_camera_id_cache = {}
+
+
+def resolve_camera_id(mac):
+    if not mac:
+        return None
+    if mac in _camera_id_cache:
+        return _camera_id_cache[mac]
+
+    camera_id = None
+    try:
+        # data trả về là 1 LIST camera khớp filter (đã test thật với API -
+        # GET camera?mac=... trả {"data": [{"id": 27, "mac": "...", ...}]})
+        # - không phải 1 dict đơn như đoán ban đầu. Lấy camera ĐẦU TIÊN khớp.
+        cameras = get_camera_by_mac(mac)
+        if cameras:
+            camera_id = cameras[0].get('id')
+    except Exception as e:
+        print("Lỗi tra camera_id theo MAC:", str(e))
+
+    _camera_id_cache[mac] = camera_id
+    return camera_id
+
 
 def add_camera(data_camera):
     

@@ -151,14 +151,17 @@
                   <item row="1" column="0">
                    <widget class="QLabel" name="lbl_camera_id">
                     <property name="text">
-                     <string>Camera ID</string>
+                     <string>Camera ID (nội bộ)</string>
                     </property>
                    </widget>
                   </item>
                   <item row="1" column="1">
                    <widget class="QLineEdit" name="edit_camera_id">
-                    <property name="placeholderText">
-                     <string>e.g. 01</string>
+                    <property name="readOnly">
+                     <bool>true</bool>
+                    </property>
+                    <property name="toolTip">
+                     <string>ID nội bộ app tự sinh, dùng làm khoá tra cứu camera trong DeviceManager - không sửa được, và KHÔNG phải camera_id gửi lên web server (xem field "MAC Address" bên dưới cho việc đó).</string>
                     </property>
                    </widget>
                   </item>
@@ -306,6 +309,23 @@
                       <string>Error</string>
                      </property>
                     </item>
+                   </widget>
+                  </item>
+                  <item row="5" column="0">
+                   <widget class="QLabel" name="lbl_mac_address">
+                    <property name="text">
+                     <string>MAC Address</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="5" column="1">
+                   <widget class="QLineEdit" name="edit_mac_address">
+                    <property name="placeholderText">
+                     <string>AA:BB:CC:DD:EE:FF</string>
+                    </property>
+                    <property name="toolTip">
+                     <string>Đây mới là camera_id thật sự gửi lên web server (khớp với camera đã đăng ký sẵn bên đó theo MAC, KHÁC "Camera ID" nội bộ ở trên) - tự điền khi quét ARP (camera IP), hoặc nhập tay nếu không quét được/camera USB. Để trống = không gửi sự kiện/chấm công của camera này lên web.</string>
+                    </property>
                    </widget>
                   </item>
                  </layout>

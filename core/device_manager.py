@@ -24,11 +24,13 @@ Cách dùng ở 1 trang bất kỳ:
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Optional
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage
 
+from core.account_context import account_dir
 from core.models.camera_device import (
     CameraDevice,
     DeviceStatus,
@@ -84,8 +86,16 @@ class DeviceManager(QObject):
         return cls._instance
 
     # ---------------- Persistence ----------------
+    @staticmethod
+    def _devices_json_path() -> str:
+        # RIÊNG cho tài khoản đang đăng nhập (core/account_context.py) -
+        # tránh tài khoản này thấy/ghi đè camera của tài khoản khác đã đăng
+        # nhập trên cùng máy trước đó (MAC/web_camera_id gắn với account
+        # khác không tương thích chéo).
+        return os.path.join(account_dir(), "devices.json")
+
     def _load_from_disk(self) -> None:
-        for device in device_store.load_devices():
+        for device in device_store.load_devices(self._devices_json_path()):
             # Sau khi mở lại app, camera chưa chắc còn thực sự đang chạy
             # -> reset is_running, để status checker tự xác định lại Online/Offline.
             device.is_running = False
@@ -93,7 +103,7 @@ class DeviceManager(QObject):
             self._devices[device.id] = device
 
     def save_to_disk(self) -> None:
-        device_store.save_devices(self.all_devices())
+        device_store.save_devices(self.all_devices(), self._devices_json_path())
 
     # ---------------- CRUD ----------------
     def all_devices(self) -> list[CameraDevice]:
@@ -212,6 +222,7 @@ class DeviceManager(QObject):
             device_id,
             device.pipeline_source(),
             device_name=device.name,
+            web_camera_id=device.web_camera_id,
             ai_enabled=device.ai.enabled,
             reconnect_timeout=device.advanced.reconnect_timeout,
             ai_fps_limit=device.ai.ai_fps_limit,

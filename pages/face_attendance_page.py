@@ -1,7 +1,10 @@
 """FaceAttendanceWindow: kiosk nhận diện/đăng ký khuôn mặt cho mục
 ATTENDANCE (sidebar menu_window) - cửa sổ ĐỘC LẬP (không phải page trong
-stackedPages), tự mở 1 webcam riêng (index 0, không qua DeviceManager/
-CameraPipeline - xem plan đã chốt).
+stackedPages). Người dùng CHỌN 1 camera đã đăng ký (GateSetupDialog, dùng
+chung với pages/gate_kiosk_page.py, require_running=False/require_counting_line=False
+vì Face App tự mở cv2.VideoCapture riêng, không cần camera đã Start sẵn qua
+Camera Config như Gate kiosk) - lựa chọn được lưu lại (core/gate_config.py,
+kind="faceapp") để lần mở sau không phải chọn lại.
 
 Luồng:
     Webcam -> FaceCaptureWorker (detect + match KnownFacesStore liên tục)
@@ -30,13 +33,17 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QImage
 
 from core.ai_model_manager import AIModelManager
+from core.account_context import account_dir
+from core.device_manager import DeviceManager
 from core.event_dedup import PresenceDedup
+from core.gate_config import load_gate_config, save_gate_config
 from core.known_faces_store import KnownFacesStore
-from core.path_manager import BASE_DIR
+from core.models.camera_device import CameraDevice
 from scr import Web_API
 from ui.dialogs.employee_form_dialog import EmployeeFormDialog
 from ui.dialogs.face_capture_wizard_dialog import FaceCaptureWizardDialog
 from ui.dialogs.face_scan_view import FaceScanView, RingState
+from ui.dialogs.gate_setup_dialog import GateSetupDialog
 
 # Cùng ngưỡng chất lượng detection với CameraPipeline._check_faces.
 _FACE_DET_SCORE_THRESHOLD = 0.5
@@ -51,12 +58,6 @@ _DETECT_INTERVAL_SEC = 0.2  # ~5 lượt detect/giây, đủ mượt cho kiosk 1
 # (PresenceDedup: chỉ tính "đợt mới" nếu vắng mặt liên tục quá khoảng này).
 _ATTENDANCE_COOLDOWN_SEC = 60.0
 
-# camera_id gửi kèm send_mobile_employee - mặc định trỏ vào device "Camera
-# Face" (USB index 0) đã có sẵn trong config/devices.json, vì Face App cũng
-# mở đúng webcam index 0. CẦN XÁC NHẬN lại giá trị này khớp thực tế khi
-# triển khai (xem plan: đây là giả định duy nhất chưa kiểm chứng với backend).
-_ATTENDANCE_CAMERA_ID = "3aba6f1a"
-
 
 class FaceCaptureWorker(QThread):
     """Vòng lặp nền: đọc webcam + detect/match khuôn mặt liên tục, độc lập
@@ -69,9 +70,15 @@ class FaceCaptureWorker(QThread):
     face_state_changed = pyqtSignal(object)
     camera_error = pyqtSignal(str)
 
-    def __init__(self, camera_index: int = 0):
+    def __init__(self, source: str | int = 0, web_camera_id: str = ""):
         super().__init__()
-        self._camera_index = camera_index
+        self._source = source
+        # camera_id THẬT của server (CameraDevice.web_camera_id, đã tra +
+        # lưu sẵn lúc Save/Apply ở camera_config_page.py) - rỗng nghĩa là
+        # camera chưa nhập MAC/chưa tra được, _checkin() sẽ bỏ qua bước gửi
+        # web (giữ nguyên hành vi local: vẫn nhận diện/chấm công UI bình
+        # thường, chỉ không gửi lên server).
+        self._web_camera_id = web_camera_id
         self._running = True
         self._attendance_enabled = True
 
@@ -96,9 +103,9 @@ class FaceCaptureWorker(QThread):
         self._attendance_enabled = enabled
 
     def run(self) -> None:
-        cap = cv2.VideoCapture(self._camera_index)
+        cap = cv2.VideoCapture(self._source)
         if not cap.isOpened():
-            self.camera_error.emit(f"Không thể mở camera (index {self._camera_index})")
+            self.camera_error.emit(f"Không thể mở camera: {self._source}")
             return
 
         try:
@@ -195,10 +202,11 @@ class FaceCaptureWorker(QThread):
         mid_x = (left_eye[0] + right_eye[0]) / 2.0
         return float((nose[0] - mid_x) / eye_dist)
 
-    @staticmethod
-    def _checkin(frame: np.ndarray, employee_id) -> None:
+    def _checkin(self, frame: np.ndarray, employee_id) -> None:
+        if not self._web_camera_id:
+            return
         try:
-            Web_API.send_mobile_employee(frame, employee_id, _ATTENDANCE_CAMERA_ID, datetime.now())
+            Web_API.send_mobile_employee(frame, employee_id, self._web_camera_id, datetime.now())
         except Exception as exc:  # noqa: BLE001 - lỗi mạng không được làm crash worker
             print(f"[FaceApp] Lỗi ghi nhận điểm danh: {exc}")
 
@@ -244,7 +252,7 @@ class EnrollWorker(QThread):
             return
         try:
             code = self._employee_data.get("code") or "unknown"
-            folder = os.path.join(BASE_DIR, "data", "faces", str(code))
+            folder = os.path.join(account_dir(), "faces", str(code))
             os.makedirs(folder, exist_ok=True)
 
             x1, y1, x2, y2 = self._avatar_bbox
@@ -277,17 +285,75 @@ class FaceAttendanceWindow(QtWidgets.QMainWindow):
 
         self._current_state: Optional[dict] = None
         self._enroll_worker: Optional[EnrollWorker] = None
+        self._device: Optional[CameraDevice] = None
+        self._worker: Optional[FaceCaptureWorker] = None
 
         self._build_ui()
         self._center_on_screen(1300, 1080)
 
-        self._worker = FaceCaptureWorker(camera_index=0)
+        if not self._start_from_saved_config():
+            self._open_setup()
+
+        self.btn_action.clicked.connect(self._on_action_clicked)
+
+    # ── Chọn camera ──────────────────────────────────────────────────────
+    def _start_from_saved_config(self) -> bool:
+        device_id = load_gate_config("faceapp")
+        if device_id is None:
+            return False
+        device = DeviceManager.instance().get_device(device_id)
+        if device is None:
+            return False
+        self._start_worker(device)
+        return True
+
+    def _open_setup(self) -> None:
+        had_device = self._device
+        if self._worker is not None:
+            self._worker.stop()
+            self._worker.wait(2000)
+            self._worker = None
+
+        # require_running=False/require_counting_line=False: Face App tự mở
+        # cv2.VideoCapture riêng (không mượn frame từ CameraPipeline như Gate
+        # kiosk), chỉ cần camera đã ĐĂNG KÝ, không cần Start sẵn/vẽ vạch.
+        dialog = GateSetupDialog(
+            "Chọn camera cho Face App", parent=self,
+            require_running=False, require_counting_line=False,
+        )
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            if had_device is not None:
+                self._start_worker(had_device)
+            else:
+                self.close()
+            return
+
+        device = dialog.get_device()
+        save_gate_config("faceapp", device.id)
+        self._start_worker(device)
+
+    def _start_worker(self, device: CameraDevice) -> None:
+        """Tạo + start 1 FaceCaptureWorker MỚI - gọi lúc khởi tạo cửa sổ LẪN
+        lúc mở lại (showEvent) sau khi đã Close 1 lần. MenuWindow giữ
+        FaceAttendanceWindow như singleton (chỉ tạo 1 lần, lần mở sau chỉ
+        show() lại - xem menu_window.py::_on_open_attendance), trong khi
+        closeEvent() bên dưới stop() hẳn worker cũ (nhả webcam) - không tạo
+        worker mới ở đây thì mở lại cửa sổ sẽ thấy hình đứng im/đen vĩnh
+        viễn vì webcam không bao giờ được mở lại (bug đã gặp)."""
+        self._device = device
+        source = device.pipeline_source()
+        source = int(source) if source.isdigit() else source
+
+        self._worker = FaceCaptureWorker(source=source, web_camera_id=device.web_camera_id)
         self._worker.frame_ready.connect(self._on_frame)
         self._worker.face_state_changed.connect(self._on_face_state)
         self._worker.camera_error.connect(self._on_camera_error)
         self._worker.start()
 
-        self.btn_action.clicked.connect(self._on_action_clicked)
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._worker is not None and not self._worker.isRunning():
+            self._start_worker(self._device)
 
     def _center_on_screen(self, width: int, height: int) -> None:
         screen = QtWidgets.QApplication.primaryScreen()
@@ -356,6 +422,14 @@ class FaceAttendanceWindow(QtWidgets.QMainWindow):
         action_row.addWidget(self.btn_action)
         action_row.addStretch(1)
         root.addLayout(action_row)
+
+        btn_change_camera = QtWidgets.QPushButton("⚙  Đổi camera")
+        btn_change_camera.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_change_camera.clicked.connect(self._open_setup)
+        change_camera_row = QtWidgets.QHBoxLayout()
+        change_camera_row.addStretch(1)
+        change_camera_row.addWidget(btn_change_camera)
+        root.addLayout(change_camera_row)
 
     # ── Live feed ────────────────────────────────────────────────────────
     def _on_frame(self, image: QImage) -> None:
@@ -433,6 +507,7 @@ class FaceAttendanceWindow(QtWidgets.QMainWindow):
 
     # ── Shutdown ─────────────────────────────────────────────────────────
     def closeEvent(self, event) -> None:
-        self._worker.stop()
-        self._worker.wait(2000)
+        if self._worker is not None:
+            self._worker.stop()
+            self._worker.wait(2000)
         super().closeEvent(event)

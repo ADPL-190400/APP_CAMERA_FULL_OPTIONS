@@ -50,8 +50,9 @@ from core.models.camera_device import (
     parse_preview_max_width,
     parse_resolution_wh,
 )
-from core.models.event_record import EventKind
+from core.models.event_record import EVENT_KIND_LABELS, EVENT_KIND_INCIDENT_TYPE_ID, EventKind
 from core.path_manager import BASE_DIR
+from scr import Web_API
 
 _DEEPSORT_YAML = os.path.join(BASE_DIR, "core", "deep_sort_pytorch", "configs", "deep_sort.yaml")
 _REID_CKPT = os.path.join(
@@ -85,6 +86,7 @@ class CameraPipeline(QThread):
         device_id: str,
         source: str | int,
         device_name: str = "",
+        web_camera_id: str = "",
         ai_enabled: bool = False,
         reconnect_timeout: int = 10,
         ai_fps_limit: int = 10,
@@ -109,6 +111,14 @@ class CameraPipeline(QThread):
         super().__init__(parent)
         self._device_id = device_id
         self._device_name = device_name or device_id
+        # camera_id THẬT của server (Web_API.send_mobile_incident) - đã tra
+        # + lưu sẵn vào CameraDevice.web_camera_id lúc Save/Apply ở
+        # camera_config_page.py (xem CameraDevice.web_camera_id), đọc 1 LẦN
+        # lúc khởi tạo ở đây, KHÔNG đưa vào update_ai_settings() như các cờ
+        # AI khác (giống capture_resolution) - đổi MAC/Save lại lúc camera
+        # đang chạy cần Stop/Start lại mới áp dụng. Rỗng = camera này chưa
+        # khớp với bên web, _capture_events() sẽ bỏ qua bước gửi (không lỗi).
+        self._web_camera_id = web_camera_id
         self._event_dedup = PresenceDedup(_EVENT_LOG_GRACE_SEC)
         # USB camera lưu dưới dạng "0", "1"... -> cv2 cần int index.
         self._source = int(source) if isinstance(source, str) and source.isdigit() else source
@@ -403,7 +413,12 @@ class CameraPipeline(QThread):
         qua PresenceDedup (cùng ngưỡng grace với Event Feed/System Alarms),
         không lưu lặp lại khi 1 điều kiện còn tiếp diễn liên tục. Chạy ngay
         trong thread của pipeline này (đã có sẵn frame full-res), không phụ
-        thuộc có viewer đang xem preview hay không."""
+        thuộc có viewer đang xem preview hay không.
+
+        Cùng 1 đợt "MỚI" này cũng là điểm gửi incident lên web server (nếu
+        camera có mac_address) - tái dùng ĐÚNG dedup gate này thay vì viết
+        thêm debounce riêng (khác MIRAI - mỗi feature tự có 1 kiểu debounce
+        rời rạc: delay==3, interval theo giây...)."""
         checks = (
             (ppe_violation, EventKind.PPE_VIOLATION),
             (fire_alert, EventKind.FIRE_ALERT),
@@ -414,6 +429,22 @@ class CameraPipeline(QThread):
             if is_active and self._event_dedup.is_new_occurrence(kind):
                 evidence_frame = self._build_evidence_frame(frame)
                 EventStore.instance().add_event(self._device_id, self._device_name, kind, evidence_frame)
+                self._send_incident(evidence_frame, kind)
+
+    def _send_incident(self, evidence_frame, kind: EventKind) -> None:
+        """Gửi lên web qua Web_API.send_mobile_incident - CHỈ khi camera đã
+        có camera_id server đã lưu sẵn (self._web_camera_id rỗng = chưa nhập
+        MAC hoặc chưa tra được lúc Save, im lặng bỏ qua, không lỗi - không tự
+        gọi mạng để tra ở đây). Gọi ĐỒNG BỘ ngay trong QThread của pipeline
+        này (không bọc thêm threading.Thread như MIRAI - pipeline đã tự chạy
+        trong 1 QThread riêng rồi); Web_API tự try/except nên không cần bọc
+        thêm ở đây."""
+        if not self._web_camera_id:
+            return
+        details = f"{EVENT_KIND_LABELS[kind]} tại {self._device_name}"
+        Web_API.send_mobile_incident(
+            evidence_frame, details, EVENT_KIND_INCIDENT_TYPE_ID[kind], self._web_camera_id
+        )
 
     def _build_evidence_frame(self, frame):
         """Ảnh bằng chứng = frame gốc + vẽ vùng ROI (nếu camera có cấu hình)
