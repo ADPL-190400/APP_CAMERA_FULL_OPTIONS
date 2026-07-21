@@ -162,7 +162,7 @@ class AIModelManager:
         if self._human_model is None:
             with self._human_load_lock:
                 if self._human_model is None:
-                    self._human_model = YOLO(get_model_path("best_4.pt")).to(DEVICE)
+                    self._human_model = YOLO(get_model_path("best_5.pt")).to(DEVICE)
         return self._human_model
 
     def detect_humans(self, frame, imgsz: int = 480) -> Results:

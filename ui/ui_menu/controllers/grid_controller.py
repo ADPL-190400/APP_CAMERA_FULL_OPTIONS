@@ -75,16 +75,6 @@ class GridController(QObject):
     grid_mode_changed    = pyqtSignal(str)   # GridMode.value
     cameras_rebuilt       = pyqtSignal()     # grid vừa build lại xong (đổi mode/danh sách camera)
 
-    # Button active stylesheet
-    _BTN_ACTIVE = (
-        "background-color:#0e2040; color:#00d4ff; border:1px solid #00d4ff;"
-        "border-radius:6px; padding:5px 12px; font-size:12px; font-weight:600;"
-    )
-    _BTN_NORMAL = (
-        "background-color:#151c2a; color:#7a8aaa; border:1px solid #1a2030;"
-        "border-radius:6px; padding:5px 12px; font-size:12px; font-weight:500;"
-    )
-
     def __init__(
         self,
         live_page: QWidget,
@@ -192,15 +182,22 @@ class GridController(QObject):
         self.switch_grid(mode_map[btn_id])
 
     def _update_btn_styles(self, active: GridMode) -> None:
+        """Đồng bộ trạng thái :checked của 4 nút - KHÔNG tự setStyleSheet()
+        màu cứng nữa (bug đã gặp: nút luôn tối kiểu dark theme dù đang ở
+        light mode, vì setStyleSheet() trên từng widget luôn thắng tuyệt đối
+        so với stylesheet toàn cục, đè mất rule :checked/:hover theo theme
+        đã có sẵn - ui/themes/theme_dark.qss#btn_grid_2x3 v.v.). Cả 4 nút đã
+        checkable=True (xem .ui) + nằm trong _btn_group exclusive nên bấm
+        chuột đã tự set checked đúng qua QButtonGroup; chỉ cần đồng bộ ở đây
+        cho trường hợp đổi mode BẰNG CODE (vd set_cameras_and_mode() khi
+        thoát fullscreen), lúc đó không có click nào xảy ra để tự cập nhật."""
         for btn, mode in [
             (self._btn_1x1, GridMode.G1x1),
             (self._btn_2x3, GridMode.G2x3),
             (self._btn_2x4, GridMode.G2x4),
             (self._btn_4x4, GridMode.G4x4),
         ]:
-            btn.setStyleSheet(
-                self._BTN_ACTIVE if mode == active else self._BTN_NORMAL
-            )
+            btn.setChecked(mode == active)
 
     def _rebuild_grid(self, mode: GridMode) -> None:
         layout = self._grid_layout

@@ -28,11 +28,18 @@ COL_SERIAL = 4
 COL_STATUS = 5
 COL_OPERATION = 6
 
-_STATUS_COLOR = {
-    DeviceStatus.ONLINE: "#2e7d32",
-    DeviceStatus.OFFLINE: "#9e9e9e",
-    DeviceStatus.ERROR: "#c62828",
-    DeviceStatus.UNKNOWN: "#9e9e9e",
+# DeviceStatus -> giá trị property "statusKind" cho QSS (ui/themes/theme_*.qss,
+# khối QLabel[cardRole="statusBadge"]) - trước đây tô màu bằng
+# QTableWidgetItem.setBackground()/setForeground() trực tiếp trong code, bị
+# theme light ghi đè mất màu (QSS đặt color/background-color trên
+# QTableWidget nuốt mất brush đặt theo item - lỗi Qt đã biết), nên đổi sang
+# cell widget (QLabel + dynamic property) như mọi badge khác trong app
+# (camera_card.py, face_card.py) - không bị việc đó nữa.
+_STATUS_KIND = {
+    DeviceStatus.ONLINE: "online",
+    DeviceStatus.OFFLINE: "offline",
+    DeviceStatus.ERROR: "error",
+    DeviceStatus.UNKNOWN: "unknown",
 }
 
 
@@ -60,7 +67,23 @@ class DeviceManagementPage(QtWidgets.QWidget):
     # ------------------------------------------------------------------ #
     def _setup_table(self) -> None:
         header = self.tableWidget.horizontalHeader()
+        # Chỉ Name (thông tin đáng xem đầy đủ nhất) chiếm phần dư ra
+        # (Stretch) - các cột còn lại tự co theo đúng nội dung/tiêu đề
+        # (ResizeToContents) thay vì để Qt tự đặt độ rộng mặc định tuỳ tiện,
+        # tránh tình trạng Name phình quá to và các cột sau bị dồn/lấn nhau
+        # (bug đã gặp).
+        header.setSectionResizeMode(COL_CHECK, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(COL_IP, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(COL_MAC, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(COL_SERIAL, QHeaderView.ResizeMode.ResizeToContents)
+        # COL_STATUS chứa cell WIDGET (badge, không phải QTableWidgetItem) -
+        # ResizeToContents đo sizeHint widget KHÔNG đáng tin cậy (đo trước khi
+        # QSS polish xong, ra kích thước hụt) -> chữ "Online"/"Offline · Running"
+        # bị cắt (bug đã gặp). Đặt cố định đủ rộng cho text dài nhất thay vì
+        # auto-measure; vẫn Interactive để người dùng tự kéo giãn được nếu cần.
+        header.setSectionResizeMode(COL_STATUS, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(COL_STATUS, 130)
         header.setSectionResizeMode(COL_OPERATION, QHeaderView.ResizeMode.ResizeToContents)
         self.tableWidget.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tableWidget.setSelectionBehavior(
@@ -138,6 +161,10 @@ class DeviceManagementPage(QtWidgets.QWidget):
         self.tableWidget.setRowCount(0)
         for device in devices:
             self._add_row(device)
+        # setCellWidget() không tự kích hoạt tính lại chiều cao dòng như
+        # QTableWidgetItem - gọi tường minh để dòng luôn đủ cao chứa widget
+        # (checkbox/status badge/nút Operation), tránh bị cắt/tràn ra ngoài.
+        self.tableWidget.resizeRowsToContents()
 
         self.lbl_total_find.setText(f"Total({len(devices)})")
 
@@ -166,17 +193,21 @@ class DeviceManagementPage(QtWidgets.QWidget):
         self.tableWidget.setItem(row, COL_MAC, QTableWidgetItem(device.mac_address or "—"))
         self.tableWidget.setItem(row, COL_SERIAL, QTableWidgetItem(device.serial_no))
 
-        status_text = device.status.value + (" · Running" if device.is_running else "")
-        status_item = QTableWidgetItem(status_text)
-        status_item.setForeground(Qt.GlobalColor.white)
-        status_item.setBackground(
-            __import__("PyQt6.QtGui", fromlist=["QColor"]).QColor(
-                _STATUS_COLOR.get(device.status, "#9e9e9e")
-            )
-        )
-        self.tableWidget.setItem(row, COL_STATUS, status_item)
-
+        self.tableWidget.setCellWidget(row, COL_STATUS, self._build_status_badge(device))
         self.tableWidget.setCellWidget(row, COL_OPERATION, self._build_operation_widget(device))
+
+    @staticmethod
+    def _build_status_badge(device: CameraDevice) -> QtWidgets.QWidget:
+        text = device.status.value + (" · Running" if device.is_running else "")
+        container = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(container)
+        layout.setContentsMargins(6, 0, 6, 0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        badge = QtWidgets.QLabel(text)
+        badge.setProperty("cardRole", "statusBadge")
+        badge.setProperty("statusKind", _STATUS_KIND.get(device.status, "unknown"))
+        layout.addWidget(badge)
+        return container
 
     def _build_operation_widget(self, device: CameraDevice) -> QtWidgets.QWidget:
         container = QtWidgets.QWidget()
@@ -187,6 +218,11 @@ class DeviceManagementPage(QtWidgets.QWidget):
         btn_config = QtWidgets.QToolButton()
         btn_config.setText("⚙")
         btn_config.setToolTip("Cấu hình camera")
+        # cardRole="tableActionBtn": QSS thu gọn riêng cho nút trong bảng
+        # (ui/themes/theme_*.qss) - rule QToolButton chung (min-height 26px +
+        # padding) làm nút cao hơn dòng bảng (bug đã gặp: "nút Operation to
+        # hơn chiều cao của hàng"), cần nhỏ gọn hơn ở đây.
+        btn_config.setProperty("cardRole", "tableActionBtn")
         btn_config.clicked.connect(lambda: self.open_camera_config.emit(device.id))
         layout.addWidget(btn_config)
 
@@ -200,6 +236,7 @@ class DeviceManagementPage(QtWidgets.QWidget):
             btn_toggle.setText("▶")
             btn_toggle.setToolTip("Start")
             btn_toggle.clicked.connect(lambda: self.device_manager.start_device(device.id))
+        btn_toggle.setProperty("cardRole", "tableActionBtn")
         layout.addWidget(btn_toggle)
 
         return container

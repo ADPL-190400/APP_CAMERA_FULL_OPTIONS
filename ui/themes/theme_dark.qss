@@ -44,6 +44,15 @@ QPushButton {
     padding: 8px 16px;
     min-height: 34px;
 }
+/* Fallback :pressed chung cho MỌI QPushButton - trước đây không có nút nào
+   trong file này định nghĩa :pressed (chỉ có :hover), nên bấm xuống không
+   thấy khác gì với hover, cảm giác "không phản hồi". Rule #id cụ thể (vd
+   btn_close:hover màu đỏ) vẫn thắng nhờ specificity cao hơn, rule này chỉ
+   là lưới an toàn cho nút chưa có :pressed riêng. */
+QPushButton:pressed {
+    background-color: #00d4ff;
+    color: #06141f;
+}
 
 /* ─────────────────────────────────────────────────────────────
    GLOBAL WIDGET DEFAULTS - áp dụng cho MỌI instance của các loại widget
@@ -62,6 +71,47 @@ QWidget {
 QLabel {
     background-color: transparent;
     color: #c0ccdd;
+}
+
+/* QToolButton (vd nút ▶ Start/■ Stop/⚙ trong device_page.py, dựng bằng code
+   nên không có #objectName riêng để style) - TRƯỚC ĐÂY không có rule nào cả,
+   chỉ thừa hưởng QWidget nền/màu chữ chung -> bấm không thấy phản hồi gì
+   (bug đã gặp: "nhấn Start/Stop không thấy biểu hiện nút đã nhấn"). */
+QToolButton {
+    background-color: #151c2a;
+    color: #c0ccdd;
+    border: 1px solid #1a2438;
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-width: 26px;
+    min-height: 26px;
+}
+QToolButton:hover {
+    background-color: #0e2040;
+    color: #00d4ff;
+    border-color: #00d4ff;
+}
+QToolButton:pressed {
+    background-color: #00d4ff;
+    color: #06141f;
+    border-color: #00d4ff;
+}
+QToolButton:disabled {
+    background-color: #151c2a;
+    color: #3a5070;
+    border-color: #1a2030;
+}
+
+/* Nút thao tác trong 1 dòng bảng (device_page.py::_build_operation_widget,
+   cột Operation) - thu gọn hơn QToolButton mặc định (min-height 26px + 4px
+   padding = cao hơn hẳn chiều cao 1 dòng QTableWidget) để vừa khít trong ô,
+   không tràn ra ngoài dòng. */
+QToolButton[cardRole="tableActionBtn"] {
+    padding: 1px 4px;
+    min-width: 20px;
+    min-height: 20px;
+    max-height: 20px;
+    font-size: 11px;
 }
 
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QDateTimeEdit,
@@ -178,6 +228,35 @@ QTableWidget::item:selected, QTableView::item:selected {
     background-color: #0e2040;
     color: #00d4ff;
 }
+
+/* Status badge (device_page.py::_build_status_badge - cell widget, KHÔNG
+   phải QTableWidgetItem.setBackground()/setForeground() như trước - màu đặt
+   thẳng lên item bị QSS đặt trên QTableWidget "nuốt mất" khi theme áp dụng,
+   đây là lý do Online/Offline không thấy màu, đặc biệt ở theme light). */
+QLabel[cardRole="statusBadge"] {
+    border-radius: 3px;
+    padding: 1px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid transparent;
+}
+QLabel[cardRole="statusBadge"][statusKind="online"] {
+    background-color: #001a0a;
+    color: #00e676;
+    border-color: #00522a;
+}
+QLabel[cardRole="statusBadge"][statusKind="offline"],
+QLabel[cardRole="statusBadge"][statusKind="unknown"] {
+    background-color: #1a2030;
+    color: #8899bb;
+    border-color: #2a3550;
+}
+QLabel[cardRole="statusBadge"][statusKind="error"] {
+    background-color: #2a0a0a;
+    color: #ff4444;
+    border-color: #6b1a1a;
+}
+
 QHeaderView::section {
     background-color: #151c2a;
     color: #8899bb;
@@ -899,6 +978,50 @@ QPushButton#btn_refresh_device:hover {
     background-color: #0e2040;
     color: #00d4ff;
     border-color: #00d4ff;
+}
+
+/* Start/Stop device (bulk, theo dòng đã tick) - TRƯỚC ĐÂY không có rule
+   riêng như các nút khác cùng toolbar (btn_add_device/btn_find_online_devices/
+   btn_delete_device/btn_refresh_device đều đã có) -> chỉ có nền/màu QWidget
+   chung, bấm không thấy phản hồi gì (bug đã gặp). Tô màu semantic riêng
+   (xanh=Start, đỏ=Stop) thay vì cyan trung tính như các nút khác, rõ ý nghĩa
+   hành động hơn. */
+QPushButton#btn_start_device {
+    background-color: #151c2a;
+    color: #7a8aaa;
+    border: 1px solid #1a2030;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton#btn_start_device:hover {
+    background-color: #001a0a;
+    color: #00e676;
+    border-color: #00e676;
+}
+QPushButton#btn_start_device:pressed {
+    background-color: #00e676;
+    color: #06141f;
+    border-color: #00e676;
+}
+
+QPushButton#btn_stop_device {
+    background-color: #151c2a;
+    color: #7a8aaa;
+    border: 1px solid #1a2030;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton#btn_stop_device:hover {
+    background-color: #2a0a0a;
+    color: #ff4444;
+    border-color: #ff4444;
+}
+QPushButton#btn_stop_device:pressed {
+    background-color: #ff4444;
+    color: #06141f;
+    border-color: #ff4444;
 }
 
 QLabel#lbl_total_find {
