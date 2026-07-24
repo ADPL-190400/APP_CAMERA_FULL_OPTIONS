@@ -190,9 +190,32 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         cancel_btn = buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Cancel)
         cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel_btn.setStyleSheet(_CANCEL_BTN_QSS)
+        # QUAN TRỌNG: tắt auto-default - mặc định Qt sẽ coi OK là nút "default"
+        # và TỰ BẤM nó khi có phím Enter/Return bay tới dù không ai click chuột
+        # (đã kiểm chứng: nếu đầu đọc gửi thêm Enter sau chuỗi quét - hành vi
+        # mặc định phổ biến của nhiều máy quét - dialog tự Accept ngay, người
+        # dùng chưa kịp xem lại thông tin đã bị đẩy qua bước đăng ký). Tắt cả
+        # 2 nút -> Enter (dù gõ tay hay từ máy quét) không còn tự submit được,
+        # BẮT BUỘC phải bấm chuột/chạm vào đúng nút OK mới qua bước tiếp theo.
+        ok_btn.setAutoDefault(False)
+        ok_btn.setDefault(False)
+        cancel_btn.setAutoDefault(False)
+        cancel_btn.setDefault(False)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
+
+    def keyPressEvent(self, event) -> None:
+        # Lưới an toàn THỨ 2 (setAutoDefault/setDefault ở trên KHÔNG ăn
+        # chắc - đã kiểm chứng QDialogButtonBox tự set lại nút OK thành
+        # "default" mỗi khi dialog show(), bất kể đã setDefault(False) lúc
+        # dựng UI) - chặn THẲNG Enter/Return ở đây, không cho QDialog tự
+        # accept() bao giờ. Máy quét gửi thêm Enter sau chuỗi (rất phổ biến)
+        # tuyệt đối không được tự đóng dialog - bắt buộc người dùng bấm
+        # chuột/chạm vào đúng nút OK mới qua bước đăng ký tiếp theo.
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return
+        super().keyPressEvent(event)
 
     # ── Quét mã CCCD (bắt phím toàn dialog, không cần focus ô nào) ──────────
     def eventFilter(self, obj, event) -> bool:
