@@ -17,9 +17,12 @@ dung buffer khớp đúng cấu trúc mã QR CCCD chuẩn Bộ Công an
 ("so_cccd|so_cmnd_cu|ho_ten|ngay_sinh|gioi_tinh|dia_chi|ngay_cap||||", xem
 parse_cccd_scan()) là coi như "quét xong", tự fill - không cần đợi phím
 Enter (một số đầu đọc không gửi) hay bất kỳ tín hiệu nào khác. Buffer tự
-reset nếu khoảng cách giữa 2 ký tự liên tiếp > 100ms (máy quét gõ nhanh hơn
-người rất nhiều - vài ms/ký tự so với >100ms khi gõ tay), vừa tránh buffer
-phình vô hạn vừa tránh lẫn ký tự gõ tay bình thường vào giữa 1 lượt quét."""
+reset nếu khoảng cách giữa 2 ký tự liên tiếp quá xa so với tốc độ máy quét
+(xem _SCAN_KEY_GAP_SEC) - máy quét gõ nhanh hơn người rất nhiều, nhưng ký tự
+tiếng Việt có dấu có thể chậm hơn ASCII (Windows giải mã Unicode qua chuỗi
+phím numpad nội bộ trước khi Qt nhận được 1 ký tự) nên ngưỡng để khá rộng,
+tránh reset nhầm giữa chừng 1 lượt quét làm mất dữ liệu (bug đã gặp: "quét
+không fill hết thông tin")."""
 from __future__ import annotations
 
 import time
@@ -59,10 +62,13 @@ _SCAN_STATUS_OK_QSS = "color: #00e676; font-size: 11px; font-weight: 600;"
 # các field rỗng phía sau nếu có).
 _CCCD_MIN_FIELDS = 7
 
-# Khoảng cách tối đa giữa 2 ký tự liên tiếp để còn tính là "cùng 1 lượt quét"
-# - máy quét gõ cả chuỗi ~80 ký tự trong dưới nửa giây (vài ms/ký tự), người
-# gõ tay chậm hơn nhiều (>100ms/ký tự là bình thường).
-_SCAN_KEY_GAP_SEC = 0.1
+# Khoảng cách tối đa giữa 2 ký tự liên tiếp để còn tính là "cùng 1 lượt quét".
+# Từng để 0.1s (100ms) nhưng THỰC TẾ máy quét bị reset buffer giữa chừng
+# (bug "quét không fill hết thông tin") - có thể do ký tự tiếng Việt có dấu
+# chậm hơn ASCII đáng kể (Windows giải mã qua chuỗi phím numpad nội bộ). Nới
+# lên 0.5s - vẫn nhanh hơn hẳn tốc độ gõ tay của người (trung bình >150-200ms/
+# ký tự), an toàn hơn cho việc mất dữ liệu giữa chừng.
+_SCAN_KEY_GAP_SEC = 0.5
 # Chặn buffer phình vô hạn nếu vì lý do gì đó không bao giờ khớp được.
 _SCAN_BUFFER_MAX_LEN = 300
 
@@ -74,20 +80,18 @@ def parse_cccd_scan(raw: str) -> Optional[dict]:
     không phải mã CCCD) - dùng làm tín hiệu "đã quét xong" luôn, không cần
     đợi thêm sự kiện nào khác.
 
-    field[0] (số CCCD 12 số) CỐ TÌNH bỏ qua theo yêu cầu thực tế - "Mã nhân
-    viên" lấy từ field[1] (số CMND cũ, 9 số) vì hệ thống hiện tại dùng đúng
-    số này làm mã định danh nhân viên.
+    "Mã nhân viên" lấy từ field[0] (số CCCD, 12 số) - field[1] (số CMND cũ,
+    9 số) không dùng tới.
     "Tên"/"Họ" tách từ field[2] theo quy ước tiếng Việt: từ CUỐI CÙNG của họ
     tên đầy đủ là "Tên" (first_name), phần còn lại là "Họ" (last_name)."""
     parts = raw.split("|")
     if len(parts) < _CCCD_MIN_FIELDS:
         return None
 
-    cccd_no = parts[0].strip()
-    employee_code = parts[1].strip()
-    if not (cccd_no.isdigit() and len(cccd_no) == 12):
+    employee_code = parts[0].strip()
+    if not (employee_code.isdigit() and len(employee_code) == 12):
         return None
-    if not employee_code.isdigit():
+    if not parts[1].strip().isdigit():
         return None
 
     full_name = parts[2].strip()
