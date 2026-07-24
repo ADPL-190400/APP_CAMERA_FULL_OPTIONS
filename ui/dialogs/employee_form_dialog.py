@@ -31,6 +31,7 @@ không fill hết thông tin")."""
 from __future__ import annotations
 
 import time
+import unicodedata
 from typing import Optional
 
 from PyQt6 import QtWidgets
@@ -67,6 +68,36 @@ _SCAN_STATUS_OK_QSS = "color: #00e676; font-size: 11px; font-weight: 600;"
 # các field rỗng phía sau nếu có).
 _CCCD_MIN_FIELDS = 7
 
+# Đ/đ KHÔNG decompose được qua unicodedata.normalize("NFD", ...) như các chữ
+# có dấu khác (ả -> "a" + dấu, nhưng "Đ" là 1 chữ cái Latin Extended-A riêng
+# trong Unicode) - map thủ công để coi "D" là chữ gốc của "Đ".
+_VIET_LETTER_BASE = {"Đ": "D", "đ": "d"}
+
+
+def _char_base(ch: str) -> str:
+    if ch in _VIET_LETTER_BASE:
+        return _VIET_LETTER_BASE[ch]
+    decomposed = unicodedata.normalize("NFD", ch)
+    return decomposed[:1] or ch
+
+
+def _is_next_compose_step(prev: str, new: str) -> bool:
+    """True nếu `new` là 1 BƯỚC GHÉP DẤU TIẾP THEO của cùng 1 chữ cái gốc với
+    `prev` (vd a -> ă -> ặ, hoặc D -> Đ) - dùng để gộp lại các bước trung
+    gian mà driver bàn phím/HID Windows gửi thành từng phím RIÊNG BIỆT thay
+    vì gửi thẳng ký tự có dấu cuối cùng (lỗi thật đã gặp khi quét CCCD qua
+    máy quét: "Đặng Hồng" -> "DĐaăặng Hoôồng" - mỗi ký tự có dấu bị "gõ" ra
+    thành cả chuỗi bước hợp dấu trung gian thay vì 1 ký tự cuối).
+
+    Cố tình chỉ coi là 1 bước hợp dấu khi `new` THỰC SỰ có dấu (khác 0 dấu
+    hoặc là "Đ"/"đ") - không được gộp nhầm 2 chữ cái thường GIỐNG HỆT nhau
+    đứng cạnh nhau (vd "aa" hợp lệ trong 1 số từ/địa danh)."""
+    if prev == new:
+        return False
+    if _char_base(prev).lower() != _char_base(new).lower():
+        return False
+    return new in _VIET_LETTER_BASE or len(unicodedata.normalize("NFD", new)) > 1
+
 # Khoảng cách tối đa giữa 2 ký tự liên tiếp để còn tính là "cùng 1 lượt quét".
 # Từng để 0.1s (100ms) nhưng THỰC TẾ máy quét bị reset buffer giữa chừng
 # (bug "quét không fill hết thông tin") - có thể do ký tự tiếng Việt có dấu
@@ -76,6 +107,12 @@ _CCCD_MIN_FIELDS = 7
 _SCAN_KEY_GAP_SEC = 0.5
 # Chặn buffer phình vô hạn nếu vì lý do gì đó không bao giờ khớp được.
 _SCAN_BUFFER_MAX_LEN = 300
+# Sau khi 1 lượt quét vừa THÀNH CÔNG, bỏ qua mọi ký tự số "mở đầu buffer mới"
+# tới trong khoảng này - lỗi thật đã gặp: 1 đoạn đuôi chuỗi cũ tới trễ/dội lại
+# ngay sau khi đã quét xong, bị hiểu nhầm thành lượt quét MỚI, dính thêm rác
+# vào field đã đúng. Đủ ngắn để không cản trở quét thẻ KHÁC ngay sau đó (cần
+# vài giây thao tác vật lý: rút thẻ cũ, đưa thẻ mới vào đầu đọc).
+_SCAN_SUCCESS_COOLDOWN_SEC = 0.5
 
 
 def parse_cccd_scan(raw: str) -> Optional[dict]:
@@ -131,6 +168,7 @@ class EmployeeFormDialog(QtWidgets.QDialog):
 
         self._scan_buffer = ""
         self._scan_last_key_ts = 0.0
+        self._scan_cooldown_until = 0.0  # xem _SCAN_SUCCESS_COOLDOWN_SEC
         # Widget đang focus TẠI THỜI ĐIỂM bắt đầu buffer 1 ký tự số đầu tiên
         # (không tra lại focusWidget() lúc flush - người dùng có thể đã bấm
         # chuột sang ô khác trong lúc buffer đang chờ, tra lại lúc đó sẽ trả
@@ -301,11 +339,27 @@ class EmployeeFormDialog(QtWidgets.QDialog):
             self._flush_scan_buffer()
 
         if not self._scan_buffer:
+            if now < self._scan_cooldown_until:
+                # Vừa quét THÀNH CÔNG cách đây rất gần (xem _apply_scanned_data)
+                # - ký tự số mới tới ngay sau đó nhiều khả năng là dữ liệu
+                # dội/lặp lại của CHÍNH lượt quét vừa xong (đã gặp thật: 1 đoạn
+                # đuôi chuỗi cũ "23092024||||" tới trễ, dính thêm vào Mã nhân
+                # viên đã đúng) chứ không phải quét thẻ mới hay gõ tay - bỏ hẳn
+                # ký tự này, không mở buffer mới.
+                return True
             if not text.isdigit():
                 return False  # ký tự ĐẦU không phải số -> chắc chắn không phải mở đầu 1 mã CCCD, cho gõ tay bình thường, không đụng vào buffer
             self._scan_target_widget = QtWidgets.QApplication.focusWidget()
 
-        self._scan_buffer += text
+        if self._scan_buffer and _is_next_compose_step(self._scan_buffer[-1], text):
+            # Ký tự MỚI là bước ghép dấu tiếp theo của CHÍNH ký tự cuối buffer
+            # (vd vừa thêm "ă", giờ tới "ặ") - THAY THẾ, không nối thêm (xem
+            # _is_next_compose_step - lỗi thật đã gặp: driver gửi từng bước
+            # trung gian thành phím riêng, "Đặng" thành "DĐaăặng").
+            self._scan_buffer = self._scan_buffer[:-1] + text
+        else:
+            self._scan_buffer += text
+
         if len(self._scan_buffer) > _SCAN_BUFFER_MAX_LEN:
             # Dài bất thường mà vẫn chưa khớp -> chắc chắn không phải mã
             # CCCD (lượt quét thật khớp rất sớm ngay khi đủ field) - trả lại
@@ -319,6 +373,7 @@ class EmployeeFormDialog(QtWidgets.QDialog):
             self._scan_buffer = ""
             self._scan_target_widget = None
             self._scan_timer.stop()
+            self._scan_cooldown_until = now + _SCAN_SUCCESS_COOLDOWN_SEC
             return True
 
         # Chưa khớp - có thể còn đang quét dở (ký tự tiếp theo sắp tới) hoặc
