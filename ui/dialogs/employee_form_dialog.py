@@ -8,19 +8,25 @@ scr/Web_API.py:post_employee) - "code" ("employee_code"), "first_name",
 (gửi None nếu để trống, giống code gốc bên MIRAI).
 
 Hỗ trợ quét mã CCCD (đầu đọc barcode/QR USB kiểu "HID keyboard wedge" - gõ
-thẳng chuỗi vào ô đang focus, không cần API/driver riêng): người dùng focus
-vào ô "Quét mã CCCD" rồi quét thẻ, chuỗi chuẩn Bộ Công an
-("so_cccd|so_cmnd_cu|ho_ten|ngay_sinh|gioi_tinh|dia_chi|ngay_cap||||") tự
-nhận diện qua parse_cccd_scan() - KHÔNG dựa vào phím Enter (một số đầu đọc
-không gửi), mà dựa thẳng vào cấu trúc chuỗi (12 số đầu + luôn kết thúc bằng
-4 field rỗng "||||" - cố định trong chuẩn này) nên biết chắc đã quét xong
-ngay khi ký tự cuối vừa "gõ" tới, không cần đợi thêm tín hiệu nào khác."""
+thẳng ký tự như bàn phím thật) - KHÔNG cần bấm/focus vào ô nào cả: cài 1
+event filter ở cấp QApplication (installEventFilter) trong lúc dialog này
+đang mở, bắt MỌI QKeyEvent bất kể widget con nào đang focus (chỉ QUAN SÁT,
+không chặn - `eventFilter` trả về False nên gõ tay ở ô đang focus vẫn hoạt
+động bình thường song song). Ký tự gõ được dồn vào 1 buffer nội bộ; hễ nội
+dung buffer khớp đúng cấu trúc mã QR CCCD chuẩn Bộ Công an
+("so_cccd|so_cmnd_cu|ho_ten|ngay_sinh|gioi_tinh|dia_chi|ngay_cap||||", xem
+parse_cccd_scan()) là coi như "quét xong", tự fill - không cần đợi phím
+Enter (một số đầu đọc không gửi) hay bất kỳ tín hiệu nào khác. Buffer tự
+reset nếu khoảng cách giữa 2 ký tự liên tiếp > 100ms (máy quét gõ nhanh hơn
+người rất nhiều - vài ms/ký tự so với >100ms khi gõ tay), vừa tránh buffer
+phình vô hạn vừa tránh lẫn ký tự gõ tay bình thường vào giữa 1 lượt quét."""
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 from PyQt6 import QtWidgets
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt
 
 # Kiosk restyle - cùng bảng màu dark theme của app (ui/themes/theme_dark.qss)
 # nhưng field/nút to hơn cho dễ chạm trên màn hình cảm ứng. KHÔNG đổi field/
@@ -52,6 +58,13 @@ _SCAN_STATUS_OK_QSS = "color: #00e676; font-size: 11px; font-weight: 600;"
 # so_cmnd_cu, ho_ten, ngay_sinh, gioi_tinh, dia_chi, ngay_cap - cộng thêm
 # các field rỗng phía sau nếu có).
 _CCCD_MIN_FIELDS = 7
+
+# Khoảng cách tối đa giữa 2 ký tự liên tiếp để còn tính là "cùng 1 lượt quét"
+# - máy quét gõ cả chuỗi ~80 ký tự trong dưới nửa giây (vài ms/ký tự), người
+# gõ tay chậm hơn nhiều (>100ms/ký tự là bình thường).
+_SCAN_KEY_GAP_SEC = 0.1
+# Chặn buffer phình vô hạn nếu vì lý do gì đó không bao giờ khớp được.
+_SCAN_BUFFER_MAX_LEN = 300
 
 
 def parse_cccd_scan(raw: str) -> Optional[dict]:
@@ -106,9 +119,16 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         self.setWindowTitle("Sửa thông tin nhân viên" if self._is_edit else "Đăng ký nhân viên mới")
         self.setMinimumWidth(440)
         self.setStyleSheet(_DIALOG_QSS)
+
+        self._scan_buffer = ""
+        self._scan_last_key_ts = 0.0
+
         self._build_ui()
         if employee:
             self._fill(employee)
+
+        # Cài lúc dựng dialog, gỡ lúc đóng (done()) - xem module docstring.
+        QtWidgets.QApplication.instance().installEventFilter(self)
 
     def _build_ui(self) -> None:
         layout = QtWidgets.QFormLayout(self)
@@ -116,18 +136,13 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         layout.setVerticalSpacing(14)
         layout.setHorizontalSpacing(16)
 
-        # ── Quét mã CCCD - focus vào đây rồi quét, các ô bên dưới tự điền ──
-        self.edit_scan = QtWidgets.QLineEdit()
-        self.edit_scan.setPlaceholderText("Focus vào đây rồi quét thẻ CCCD...")
-        self.edit_scan.textChanged.connect(self._on_scan_text_changed)
-        layout.addRow("Quét mã CCCD", self.edit_scan)
-
         self.lbl_scan_status = QtWidgets.QLabel(
-            "Quét thẻ để tự điền Mã NV/Tên/Họ/Ngày sinh/Giới tính/Địa chỉ, hoặc tự nhập tay bên dưới."
+            "💳 Quét thẻ CCCD bất kỳ lúc nào (không cần bấm vào ô nào) để tự điền "
+            "Mã NV/Tên/Họ/Ngày sinh/Giới tính/Địa chỉ, hoặc tự nhập tay bên dưới."
         )
         self.lbl_scan_status.setStyleSheet(_SCAN_HINT_QSS)
         self.lbl_scan_status.setWordWrap(True)
-        layout.addRow("", self.lbl_scan_status)
+        layout.addRow(self.lbl_scan_status)
 
         self.edit_code = QtWidgets.QLineEdit()
         self.edit_code.setPlaceholderText("NV001")
@@ -179,17 +194,30 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
-    # ── Quét mã CCCD ─────────────────────────────────────────────────────
-    def _on_scan_text_changed(self, text: str) -> None:
-        parsed = parse_cccd_scan(text)
-        if parsed is None:
-            return
-        self._apply_scanned_data(parsed)
-        # Xoá ô quét NGAY để sẵn sàng cho lượt quét kế tiếp - block signal
-        # lúc clear để không tự gọi lại handler này với chuỗi rỗng.
-        self.edit_scan.blockSignals(True)
-        self.edit_scan.clear()
-        self.edit_scan.blockSignals(False)
+    # ── Quét mã CCCD (bắt phím toàn dialog, không cần focus ô nào) ──────────
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.KeyPress:
+            self._on_key_press(event)
+        return super().eventFilter(obj, event)  # False - KHÔNG chặn, gõ tay vẫn hoạt động bình thường
+
+    def _on_key_press(self, event) -> None:
+        now = time.monotonic()
+        if now - self._scan_last_key_ts > _SCAN_KEY_GAP_SEC:
+            self._scan_buffer = ""
+        self._scan_last_key_ts = now
+
+        text = event.text()
+        if not text:
+            return  # phím điều khiển (mũi tên, Ctrl...) không có ký tự - bỏ qua
+
+        self._scan_buffer += text
+        if len(self._scan_buffer) > _SCAN_BUFFER_MAX_LEN:
+            self._scan_buffer = self._scan_buffer[-_SCAN_BUFFER_MAX_LEN:]
+
+        parsed = parse_cccd_scan(self._scan_buffer)
+        if parsed is not None:
+            self._apply_scanned_data(parsed)
+            self._scan_buffer = ""
 
     def _apply_scanned_data(self, data: dict) -> None:
         """Chuỗi quét MỚI (khác thẻ trước đó) -> GHI ĐÈ toàn bộ field liên
@@ -203,7 +231,7 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         self.edit_dob.setText(data["dob"])
         self.edit_gender.setText(data["gender"])
         self.edit_address.setText(data["address"])
-        self.lbl_scan_status.setText("✓ Đã điền thông tin từ thẻ quét.")
+        self.lbl_scan_status.setText("✓ Đã điền thông tin từ thẻ vừa quét.")
         self.lbl_scan_status.setStyleSheet(_SCAN_STATUS_OK_QSS)
 
     # ── Sửa/điền tay ─────────────────────────────────────────────────────
@@ -234,3 +262,11 @@ class EmployeeFormDialog(QtWidgets.QDialog):
             "phone": self.edit_phone.text().strip() or None,
             "email": self.edit_email.text().strip() or None,
         }
+
+    def done(self, result: int) -> None:
+        # Gỡ event filter TOÀN CỤC ngay khi dialog đóng (OK/Cancel/X đều đi
+        # qua done()) - không gỡ thì filter vẫn "sống" trên QApplication sau
+        # khi dialog đã bị huỷ, rò rỉ + có thể lỗi khi eventFilter cố truy
+        # cập self của 1 dialog đã chết.
+        QtWidgets.QApplication.instance().removeEventFilter(self)
+        super().done(result)
