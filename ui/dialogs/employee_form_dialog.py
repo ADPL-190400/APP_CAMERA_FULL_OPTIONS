@@ -82,21 +82,25 @@ def _char_base(ch: str) -> str:
 
 
 def _is_next_compose_step(prev: str, new: str) -> bool:
-    """True nếu `new` là 1 BƯỚC GHÉP DẤU TIẾP THEO của cùng 1 chữ cái gốc với
-    `prev` (vd a -> ă -> ặ, hoặc D -> Đ) - dùng để gộp lại các bước trung
-    gian mà driver bàn phím/HID Windows gửi thành từng phím RIÊNG BIỆT thay
-    vì gửi thẳng ký tự có dấu cuối cùng (lỗi thật đã gặp khi quét CCCD qua
-    máy quét: "Đặng Hồng" -> "DĐaăặng Hoôồng" - mỗi ký tự có dấu bị "gõ" ra
-    thành cả chuỗi bước hợp dấu trung gian thay vì 1 ký tự cuối).
+    """True nếu `new` là CÙNG 1 CHỮ CÁI GỐC với `prev` (vd a/ă/ặ đều gốc "a",
+    D/Đ đều gốc "D") - dùng để gộp lại các bước trung gian mà driver bàn
+    phím/HID Windows gửi thành từng phím RIÊNG BIỆT thay vì gửi thẳng ký tự
+    có dấu cuối cùng (lỗi thật đã gặp khi quét CCCD qua máy quét: "Đặng
+    Hồng" -> "DĐaăặng Hoôồng" - mỗi ký tự có dấu bị "gõ" ra thành cả chuỗi
+    bước hợp dấu trung gian thay vì 1 ký tự cuối).
 
-    Cố tình chỉ coi là 1 bước hợp dấu khi `new` THỰC SỰ có dấu (khác 0 dấu
-    hoặc là "Đ"/"đ") - không được gộp nhầm 2 chữ cái thường GIỐNG HỆT nhau
-    đứng cạnh nhau (vd "aa" hợp lệ trong 1 số từ/địa danh)."""
-    if prev == new:
+    CỐ Ý không đòi hỏi `new` phải "nhiều dấu hơn" `prev` (thử as vậy trước
+    đây vẫn KHÔNG khớp được hết các trường hợp thực tế trên máy quét thật -
+    driver/HID có thể gửi các bước hợp dấu theo thứ tự/số lượng khác dự
+    đoán) - chỉ cần CÙNG chữ cái gốc là coi bước sau THAY THẾ bước trước,
+    kể cả khi 2 ký tự giống hệt nhau (dedup luôn các phím lặp/dội của driver).
+
+    Chỉ áp dụng cho CHỮ CÁI (`str.isalpha()`) - KHÔNG áp dụng cho chữ số hay
+    ký tự khác, vì số CCCD có thể có 2 chữ số giống nhau đứng cạnh nhau (vd
+    "...4009698" có "00") và không được phép gộp mất 1 chữ số."""
+    if not prev.isalpha() or not new.isalpha():
         return False
-    if _char_base(prev).lower() != _char_base(new).lower():
-        return False
-    return new in _VIET_LETTER_BASE or len(unicodedata.normalize("NFD", new)) > 1
+    return _char_base(prev).lower() == _char_base(new).lower()
 
 # Khoảng cách tối đa giữa 2 ký tự liên tiếp để còn tính là "cùng 1 lượt quét".
 # Từng để 0.1s (100ms) nhưng THỰC TẾ máy quét bị reset buffer giữa chừng
