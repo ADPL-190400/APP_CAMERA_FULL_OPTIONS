@@ -10,10 +10,15 @@ scr/Web_API.py:post_employee) - "code" ("employee_code"), "first_name",
 Hỗ trợ quét mã CCCD (đầu đọc barcode/QR USB kiểu "HID keyboard wedge" - gõ
 thẳng ký tự như bàn phím thật) - KHÔNG cần bấm/focus vào ô nào cả: cài 1
 event filter ở cấp QApplication (installEventFilter) trong lúc dialog này
-đang mở, bắt MỌI QKeyEvent bất kể widget con nào đang focus (chỉ QUAN SÁT,
-không chặn - `eventFilter` trả về False nên gõ tay ở ô đang focus vẫn hoạt
-động bình thường song song). Ký tự gõ được dồn vào 1 buffer nội bộ; hễ nội
-dung buffer khớp đúng cấu trúc mã QR CCCD chuẩn Bộ Công an
+đang mở, bắt MỌI QKeyEvent bất kể widget con nào đang focus. Ký tự ĐẦU TIÊN
+là chữ số (mọi mã CCCD hợp lệ đều bắt đầu bằng 12 số) sẽ mở 1 "lượt nghi là
+quét" - từ đó CHẶN HẲN các ký tự tiếp theo (không cho lọt vào ô đang focus
+nữa, xem _on_key_press) cho tới khi khớp đủ cấu trúc hoặc hết giờ; gõ tay
+bắt đầu bằng chữ (vd "NV001") không rơi vào nhánh này nên không bị ảnh
+hưởng. (Bản đầu chỉ "quan sát" không chặn - lộ bug: cả chuỗi quét bị gõ
+thẳng như văn bản thường vào đúng ô "Mã nhân viên" đang mặc định focus sẵn
+lúc mở dialog, xem lịch sử sửa.) Ký tự gõ được dồn vào 1 buffer nội bộ; hễ
+nội dung buffer khớp đúng cấu trúc mã QR CCCD chuẩn Bộ Công an
 ("so_cccd|so_cmnd_cu|ho_ten|ngay_sinh|gioi_tinh|dia_chi|ngay_cap||||", xem
 parse_cccd_scan()) là coi như "quét xong", tự fill - không cần đợi phím
 Enter (một số đầu đọc không gửi) hay bất kỳ tín hiệu nào khác. Buffer tự
@@ -29,7 +34,7 @@ import time
 from typing import Optional
 
 from PyQt6 import QtWidgets
-from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtCore import QEvent, Qt, QTimer
 
 # Kiosk restyle - cùng bảng màu dark theme của app (ui/themes/theme_dark.qss)
 # nhưng field/nút to hơn cho dễ chạm trên màn hình cảm ứng. KHÔNG đổi field/
@@ -126,6 +131,17 @@ class EmployeeFormDialog(QtWidgets.QDialog):
 
         self._scan_buffer = ""
         self._scan_last_key_ts = 0.0
+        # Widget đang focus TẠI THỜI ĐIỂM bắt đầu buffer 1 ký tự số đầu tiên
+        # (không tra lại focusWidget() lúc flush - người dùng có thể đã bấm
+        # chuột sang ô khác trong lúc buffer đang chờ, tra lại lúc đó sẽ trả
+        # nhầm ký tự vào ô mới thay vì ô đang gõ dở).
+        self._scan_target_widget: Optional[QtWidgets.QLineEdit] = None
+        # Hết giờ mà không có ký tự tiếp theo (KHÔNG có phím nào tới để tự so
+        # sánh mốc thời gian) -> coi như KHÔNG phải quét, trả lại nguyên văn
+        # đã chặn vào đúng ô đang gõ dở (xem _flush_scan_buffer).
+        self._scan_timer = QTimer(self)
+        self._scan_timer.setSingleShot(True)
+        self._scan_timer.timeout.connect(self._flush_scan_buffer)
 
         self._build_ui()
         if employee:
@@ -224,27 +240,104 @@ class EmployeeFormDialog(QtWidgets.QDialog):
     # ── Quét mã CCCD (bắt phím toàn dialog, không cần focus ô nào) ──────────
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QEvent.Type.KeyPress:
-            self._on_key_press(event)
-        return super().eventFilter(obj, event)  # False - KHÔNG chặn, gõ tay vẫn hoạt động bình thường
+            if self._on_key_press(event):
+                return True  # CHẶN - không cho ký tự này lọt vào ô đang focus (xem _on_key_press)
+        elif (
+            event.type() == QEvent.Type.FocusIn
+            and self._scan_buffer
+            and self._scan_target_widget is not None
+            and obj is not self._scan_target_widget
+        ):
+            # Có 1 buffer đang chờ dở dang MÀ nó bắt đầu từ 1 Ô CỤ THỂ đang
+            # gõ dở (self._scan_target_widget không None), và focus vừa
+            # chuyển sang Ô KHÁC (bấm chuột/Tab) trước khi kịp hết giờ chờ -
+            # chốt lại NGAY, không đợi timer nữa. Không làm vậy thì ký tự gõ
+            # tiếp theo ở ô MỚI sẽ bị cộng nhầm vào buffer của ô CŨ (đã kiểm
+            # chứng bằng test: gõ dở "NV002" ở Mã NV rồi bấm sang ô Tên gõ
+            # tiếp "Test" -> "Test" bị dính vào Mã NV).
+            #
+            # CHỈ xét khi target KHÔNG None - lúc quét thẻ mà KHÔNG bấm/focus
+            # ô nào cả (đúng luồng chính), Qt có thể tự gán focus mặc định
+            # cho 1 ô nào đó ngay trong lúc đang quét dở (không phải do
+            # người dùng bấm) - nếu cũng flush ở đây sẽ huỷ ngang lượt quét
+            # thật giữa chừng (bug đã gặp: chế độ Sửa, ô Mã NV bị khoá nên
+            # không có focus rõ ràng lúc mở dialog, quét bị huỷ ngang).
+            self._flush_scan_buffer()
+        return super().eventFilter(obj, event)
 
-    def _on_key_press(self, event) -> None:
+    def _on_key_press(self, event) -> bool:
+        """Trả về True nếu ký tự này CẦN CHẶN (không cho ô đang focus nhận
+        được) vì đang trong 1 chuỗi nghi là quét thẻ.
+
+        Ô "Mã nhân viên" là ô đầu tiên trong form nên MẶC ĐỊNH được focus
+        sẵn lúc dialog vừa mở - trước đây filter chỉ "quan sát" (không chặn)
+        nên toàn bộ chuỗi quét (kể cả ký tự "|") bị gõ thẳng như văn bản
+        thường vào đúng ô đó, hiện ra 1 đống chữ lộn xộn CHỈ ở "Mã nhân
+        viên" trong khi các ô khác không có gì (bug đã gặp: "quét chỉ fill
+        vào mã NV rồi thôi"). Phải CHẶN hẳn trong lúc đang tích luỹ 1 lượt
+        quét, chỉ khi khớp đủ cấu trúc mới thật sự fill (_apply_scanned_data).
+
+        Chỉ bắt đầu chặn khi ký tự ĐẦU buffer là 1 CHỮ SỐ (mọi mã CCCD hợp lệ
+        đều bắt đầu bằng 12 số) - gõ tay bình thường bắt đầu bằng chữ (vd
+        "NV001", 2 ký tự đầu "N"/"V") không rơi vào nhánh này. Nhưng nếu
+        NGƯỜI DÙNG gõ tay 1 mã có số ở đâu đó (vd tiếp sau "N"/"V" là "001")
+        thì các số đó SẼ bị tạm chặn/tích luỹ giống hệt đang nghi ngờ là quét
+        - để không mất chữ đã gõ, buffer đó được TRẢ LẠI (chèn nguyên văn vào
+        đúng ô đang gõ dở) qua _flush_scan_buffer() nếu hết giờ không khớp
+        được cấu trúc CCCD nào (xem _scan_timer)."""
         now = time.monotonic()
-        if now - self._scan_last_key_ts > _SCAN_KEY_GAP_SEC:
-            self._scan_buffer = ""
+        gap_exceeded = now - self._scan_last_key_ts > _SCAN_KEY_GAP_SEC
         self._scan_last_key_ts = now
 
         text = event.text()
         if not text:
-            return  # phím điều khiển (mũi tên, Ctrl...) không có ký tự - bỏ qua
+            return False  # phím điều khiển (mũi tên, Ctrl...) không có ký tự - không liên quan
+
+        if gap_exceeded and self._scan_buffer:
+            # Lượt trước bị bỏ dở (không có ký tự nào tới kịp trong
+            # _SCAN_KEY_GAP_SEC để chính nó kích hoạt _scan_timer xử lý) -
+            # trả lại trước khi xét ký tự MỚI này như 1 khởi đầu hoàn toàn
+            # riêng biệt.
+            self._flush_scan_buffer()
+
+        if not self._scan_buffer:
+            if not text.isdigit():
+                return False  # ký tự ĐẦU không phải số -> chắc chắn không phải mở đầu 1 mã CCCD, cho gõ tay bình thường, không đụng vào buffer
+            self._scan_target_widget = QtWidgets.QApplication.focusWidget()
 
         self._scan_buffer += text
         if len(self._scan_buffer) > _SCAN_BUFFER_MAX_LEN:
-            self._scan_buffer = self._scan_buffer[-_SCAN_BUFFER_MAX_LEN:]
+            # Dài bất thường mà vẫn chưa khớp -> chắc chắn không phải mã
+            # CCCD (lượt quét thật khớp rất sớm ngay khi đủ field) - trả lại
+            # toàn bộ, không giữ tiếp.
+            self._flush_scan_buffer()
+            return False
 
         parsed = parse_cccd_scan(self._scan_buffer)
         if parsed is not None:
             self._apply_scanned_data(parsed)
             self._scan_buffer = ""
+            self._scan_target_widget = None
+            self._scan_timer.stop()
+            return True
+
+        # Chưa khớp - có thể còn đang quét dở (ký tự tiếp theo sắp tới) hoặc
+        # là gõ tay tình cờ bắt đầu bằng số - hẹn giờ, hết giờ mà không có gì
+        # thêm thì _flush_scan_buffer() tự trả lại (xem __init__).
+        self._scan_timer.start(int(_SCAN_KEY_GAP_SEC * 1000))
+        return True
+
+    def _flush_scan_buffer(self) -> None:
+        """Buffer đang tích luỹ dở KHÔNG khớp được cấu trúc CCCD nào trong
+        thời gian chờ - kết luận đây KHÔNG phải 1 lượt quét, trả lại nguyên
+        văn các ký tự đã tạm chặn vào ĐÚNG ô đang gõ dở lúc bắt đầu buffer
+        (không tra lại focus hiện tại - có thể người dùng đã bấm sang ô khác
+        trong lúc chờ)."""
+        self._scan_timer.stop()
+        text, self._scan_buffer = self._scan_buffer, ""
+        widget, self._scan_target_widget = self._scan_target_widget, None
+        if text and isinstance(widget, QtWidgets.QLineEdit):
+            widget.insert(text)
 
     def _apply_scanned_data(self, data: dict) -> None:
         """Chuỗi quét MỚI (khác thẻ trước đó) -> GHI ĐÈ toàn bộ field liên
@@ -273,6 +366,10 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         self.edit_email.setText(str(employee.get("email") or ""))
 
     def _on_accept(self) -> None:
+        # Bấm OK ngay khi 1 buffer đang chờ hết giờ (vd vừa gõ tay xong số
+        # cuối rồi bấm OK liền, chưa đủ _SCAN_KEY_GAP_SEC để tự flush) -
+        # flush ngay để không mất mấy ký tự cuối trước khi validate.
+        self._flush_scan_buffer()
         if not self.edit_code.text().strip() or not self.edit_first_name.text().strip() or not self.edit_last_name.text().strip():
             QtWidgets.QMessageBox.warning(self, "Thiếu thông tin", "Vui lòng điền Mã nhân viên, Tên và Họ.")
             return
@@ -296,4 +393,5 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         # khi dialog đã bị huỷ, rò rỉ + có thể lỗi khi eventFilter cố truy
         # cập self của 1 dialog đã chết.
         QtWidgets.QApplication.instance().removeEventFilter(self)
+        self._scan_timer.stop()
         super().done(result)
