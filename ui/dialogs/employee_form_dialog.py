@@ -284,6 +284,29 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         if event.type() == QEvent.Type.KeyPress:
             if self._on_key_press(event):
                 return True  # CHẶN - không cho ký tự này lọt vào ô đang focus (xem _on_key_press)
+        elif event.type() == QEvent.Type.InputMethod and self._scan_buffer:
+            # Thực tế đã xác nhận: quét thẻ vào Notepad (không qua Qt) ra
+            # đúng chữ tuyệt đối ("Đặng Hồng Bảo"), nhưng quét vào chính
+            # dialog này thì các ký tự có dấu vẫn bị lặp/gãy dấu ("Đặng Hồng"
+            # -> "DĐaăặng Hoôồng") DÙ ĐÃ gộp theo _is_next_compose_step ở
+            # _on_key_press - nghĩa là driver KHÔNG hề gửi ký tự trung gian,
+            # dữ liệu vào hệ điều hành vốn đã sạch/đúng ngay từ đầu. Nguyên
+            # nhân thực sự: Windows/Qt định tuyến các ký tự tiếng Việt có dấu
+            # qua cơ chế IME/composition (QInputMethodEvent), KHÔNG qua
+            # KeyPress bình thường như số/chữ không dấu/"|" - nên toàn bộ
+            # logic ở _on_key_press không bao giờ thấy được các ký tự này,
+            # chúng lọt thẳng (không bị chặn) vào ô đang focus qua đường
+            # input-method mặc định của chính QLineEdit, cộng dồn lên trên
+            # phần đã được _apply_scanned_data() điền đúng.
+            #
+            # commitString() của Qt là ký tự/đoạn ĐÃ ghép dấu xong hoàn
+            # chỉnh (Qt tự quản lý preedit nội bộ trước khi commit, không
+            # cần tự gộp bước trung gian như _is_next_compose_step) - chỉ
+            # cần nối thẳng vào buffer. CHỈ xử lý khi đang có 1 buffer dở
+            # dang (đã bắt đầu từ số CCCD qua KeyPress) - tránh chặn nhầm
+            # gõ tay tiếng Việt bình thường lúc không quét gì cả.
+            if self._on_input_method(event):
+                return True
         elif (
             event.type() == QEvent.Type.FocusIn
             and self._scan_buffer
@@ -364,6 +387,32 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         else:
             self._scan_buffer += text
 
+        return self._after_buffer_append(now)
+
+    def _on_input_method(self, event) -> bool:
+        """Xử lý phần ký tự có dấu tiếng Việt đi qua đường IME/composition
+        (QInputMethodEvent) thay vì KeyPress - xem giải thích chi tiết ở
+        eventFilter(). commitString() đã LÀ ký tự/đoạn ghép dấu cuối cùng,
+        đúng hoàn toàn (Qt tự quản lý preedit nội bộ) - không cần gộp bước
+        trung gian như _is_next_compose_step (đường KeyPress mới cần).
+
+        Khi commitString() rỗng (đang trong lúc preedit, chưa chốt) - vẫn
+        CHẶN (return True), không cho hiện tạm preedit vào ô đang focus
+        (tránh nháy chữ tạm lên UI trong lúc quét), chờ tới lúc thật sự
+        commit mới xử lý tiếp."""
+        commit = event.commitString()
+        if not commit:
+            return True
+        now = time.monotonic()
+        self._scan_last_key_ts = now
+        self._scan_buffer += commit
+        return self._after_buffer_append(now)
+
+    def _after_buffer_append(self, now: float) -> bool:
+        """Phần xử lý DÙNG CHUNG sau khi có thêm ký tự/đoạn mới vào
+        _scan_buffer, bất kể nguồn là KeyPress (_on_key_press) hay IME
+        composition (_on_input_method) - kiểm tra độ dài bất thường, khớp
+        cấu trúc CCCD, hoặc hẹn giờ chờ tiếp."""
         if len(self._scan_buffer) > _SCAN_BUFFER_MAX_LEN:
             # Dài bất thường mà vẫn chưa khớp -> chắc chắn không phải mã
             # CCCD (lượt quét thật khớp rất sớm ngay khi đủ field) - trả lại
