@@ -422,6 +422,23 @@ class EmployeeFormDialog(QtWidgets.QDialog):
                 return False  # ký tự ĐẦU không phải số -> chắc chắn không phải mở đầu 1 mã CCCD, cho gõ tay bình thường, không đụng vào buffer
             self._scan_target_widget = QtWidgets.QApplication.focusWidget()
 
+        if event.key() == Qt.Key.Key_Backspace:
+            # NGUYÊN NHÂN THẬT của lỗi lặp/gãy dấu (xác nhận bằng log debug
+            # thật từ máy người dùng, KHÔNG còn là suy đoán): máy quét gõ
+            # từng ký tự có dấu bằng cách gõ CHỮ GỐC không dấu, rồi gửi 1
+            # phím Backspace THẬT (event.text() == "\x08", key ==
+            # Key_Backspace), rồi gõ lại đúng ký tự đã có dấu - vd chuỗi
+            # thật nhận được cho "Đ" là: "D", Backspace, "Đ". 2 lần sửa
+            # trước (_is_next_compose_step, rồi QInputMethodEvent) đều SAI
+            # vì đoán nhầm cơ chế - Backspace trước giờ bị coi là 1 ký tự
+            # thường rồi CỘNG THẲNG vào buffer ("D\x08Đ") thay vì THỰC HIỆN
+            # đúng tác dụng xoá lùi của nó. Chỉ cần xoá đúng 1 ký tự cuối
+            # buffer, y hệt Backspace thật làm trên 1 ô nhập liệu bình
+            # thường - không cần đoán "chữ nào cùng gốc" nữa.
+            if self._scan_buffer:
+                self._scan_buffer = self._scan_buffer[:-1]
+            return True
+
         if self._scan_buffer and _is_next_compose_step(self._scan_buffer[-1], text):
             # Ký tự MỚI là bước ghép dấu tiếp theo của CHÍNH ký tự cuối buffer
             # (vd vừa thêm "ă", giờ tới "ặ") - THAY THẾ, không nối thêm (xem
