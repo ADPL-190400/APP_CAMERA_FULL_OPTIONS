@@ -30,12 +30,40 @@ tránh reset nhầm giữa chừng 1 lượt quét làm mất dữ liệu (bug �
 không fill hết thông tin")."""
 from __future__ import annotations
 
+import os
 import time
 import unicodedata
 from typing import Optional
 
 from PyQt6 import QtWidgets
 from PyQt6.QtCore import QEvent, Qt, QTimer
+
+# ── Debug tạm thời cho lỗi quét CCCD (2 lần sửa trước KHÔNG ăn trên máy thật
+# của người dùng dù test giả lập đều pass) - thay vì đoán tiếp cơ chế OS/Qt
+# đang dùng, GHI LẠI đúng luồng event thật (KeyPress/InputMethod, nội dung,
+# thời điểm) mỗi khi có phím tới trong lúc dialog này đang mở, để lần sau
+# test trên máy thật có dữ liệu THẬT thay vì đoán mò. Cố tình bật SẴN
+# (không cần bật cờ gì thêm) vì bug chỉ tái hiện được trên máy có máy quét
+# thật - tắt lại bằng cách đặt _SCAN_DEBUG = False khi đã tìm ra nguyên nhân
+# và không cần log nữa.
+_SCAN_DEBUG = True
+_scan_debug_log_path: Optional[str] = None
+
+
+def _scan_debug(msg: str) -> None:
+    if not _SCAN_DEBUG:
+        return
+    global _scan_debug_log_path
+    try:
+        if _scan_debug_log_path is None:
+            from core.path_manager import BASE_DIR
+            log_dir = os.path.join(BASE_DIR, "logs")
+            os.makedirs(log_dir, exist_ok=True)
+            _scan_debug_log_path = os.path.join(log_dir, "cccd_scan_debug.log")
+        with open(_scan_debug_log_path, "a", encoding="utf-8") as f:
+            f.write(f"{time.time():.3f} {msg}\n")
+    except Exception:
+        pass
 
 # Kiosk restyle - cùng bảng màu dark theme của app (ui/themes/theme_dark.qss)
 # nhưng field/nút to hơn cho dễ chạm trên màn hình cảm ứng. KHÔNG đổi field/
@@ -281,6 +309,22 @@ class EmployeeFormDialog(QtWidgets.QDialog):
 
     # ── Quét mã CCCD (bắt phím toàn dialog, không cần focus ô nào) ──────────
     def eventFilter(self, obj, event) -> bool:
+        if _SCAN_DEBUG and event.type() in (QEvent.Type.KeyPress, QEvent.Type.InputMethod):
+            # Ghi lại NGUYÊN VĂN mọi event tới đây, kể cả InputMethod lúc
+            # buffer đang RỖNG (để kiểm tra luôn giả thiết "số CCCD luôn tới
+            # qua KeyPress" - nếu giả thiết đó cũng sai trên máy người dùng,
+            # log này sẽ lộ ra ngay).
+            if event.type() == QEvent.Type.KeyPress:
+                _scan_debug(
+                    f"KeyPress obj={obj.objectName() if hasattr(obj, 'objectName') else obj!r} "
+                    f"text={event.text()!r} key={event.key()} buffer={self._scan_buffer!r}"
+                )
+            else:
+                _scan_debug(
+                    f"InputMethod obj={obj.objectName() if hasattr(obj, 'objectName') else obj!r} "
+                    f"commit={event.commitString()!r} preedit={event.preeditString()!r} "
+                    f"buffer={self._scan_buffer!r}"
+                )
         if event.type() == QEvent.Type.KeyPress:
             if self._on_key_press(event):
                 return True  # CHẶN - không cho ký tự này lọt vào ô đang focus (xem _on_key_press)
@@ -422,6 +466,7 @@ class EmployeeFormDialog(QtWidgets.QDialog):
 
         parsed = parse_cccd_scan(self._scan_buffer)
         if parsed is not None:
+            _scan_debug(f"MATCHED raw_buffer={self._scan_buffer!r} parsed={parsed!r}")
             self._apply_scanned_data(parsed)
             self._scan_buffer = ""
             self._scan_target_widget = None
@@ -444,6 +489,8 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         self._scan_timer.stop()
         text, self._scan_buffer = self._scan_buffer, ""
         widget, self._scan_target_widget = self._scan_target_widget, None
+        if text:
+            _scan_debug(f"FLUSH (khong khop CCCD) text={text!r} widget={widget!r}")
         if text and isinstance(widget, QtWidgets.QLineEdit):
             widget.insert(text)
 
