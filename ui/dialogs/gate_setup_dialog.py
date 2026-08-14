@@ -15,6 +15,7 @@ from PyQt6 import QtWidgets
 
 from core.device_manager import DeviceManager
 from core.models.camera_device import CameraDevice, parse_points
+from ui.ui_menu.i18n import tr
 
 
 class GateSetupDialog(QtWidgets.QDialog):
@@ -38,9 +39,9 @@ class GateSetupDialog(QtWidgets.QDialog):
     def _build_ui(self) -> None:
         layout = QtWidgets.QVBoxLayout(self)
 
-        hint_text = "Chọn camera"
+        hint_text = tr("Select camera")
         if self._require_counting_line:
-            hint_text += " (đã cấu hình Counting Line ở Camera Config > ROI)"
+            hint_text += tr(" (with Counting Line configured in Camera Config > ROI)")
         layout.addWidget(QtWidgets.QLabel(hint_text + ":"))
 
         self.combo_device = QtWidgets.QComboBox()
@@ -75,41 +76,46 @@ class GateSetupDialog(QtWidgets.QDialog):
         device = self._selected_device()
         if device is None:
             self.lbl_hint.setText(
-                "⚠ Chưa có camera nào được đăng ký - vào Device Management thêm camera trước."
+                tr("⚠ No camera has been registered yet - go to Device Management to add one first.")
             )
             return
 
         if self._require_running and not DeviceManager.instance().is_pipeline_running(device.id):
             self.lbl_hint.setText(
-                f"⚠ Camera \"{device.name}\" chưa được Start - vào Camera Config hoặc "
-                "Device Management để bật chạy trước."
+                tr(
+                    "⚠ Camera \"{name}\" is not started - go to Camera Config or Device Management "
+                    "to start it first."
+                ).format(name=device.name)
             )
         elif self._require_counting_line and len(parse_points(device.counting_line)) != 2:
             self.lbl_hint.setText(
-                f"⚠ Camera \"{device.name}\" chưa vẽ Counting Line - vào Camera Config > "
-                "tab ROI để vẽ vạch trước."
+                tr(
+                    "⚠ Camera \"{name}\" has no Counting Line - go to Camera Config > ROI tab to draw one first."
+                ).format(name=device.name)
             )
         else:
-            self.lbl_hint.setText(f"✓ Camera \"{device.name}\" đã sẵn sàng.")
+            self.lbl_hint.setText(tr("✓ Camera \"{name}\" is ready.").format(name=device.name))
 
     # ------------------------------------------------------------------ #
     def _on_accept(self) -> None:
         device = self._selected_device()
         if device is None:
-            QtWidgets.QMessageBox.warning(self, "Thiếu camera", "Chọn 1 camera trước.")
+            QtWidgets.QMessageBox.warning(self, tr("No Camera Selected"), tr("Please select a camera first."))
             return
         if self._require_running and not DeviceManager.instance().is_pipeline_running(device.id):
             QtWidgets.QMessageBox.warning(
-                self, "Camera chưa chạy",
-                f"Camera \"{device.name}\" chưa được Start.\n"
-                "Vào Camera Config hoặc Device Management để bật chạy trước.",
+                self, tr("Camera Not Running"),
+                tr(
+                    "Camera \"{name}\" is not started.\nGo to Camera Config or Device Management to start it first."
+                ).format(name=device.name),
             )
             return
         if self._require_counting_line and len(parse_points(device.counting_line)) != 2:
             QtWidgets.QMessageBox.warning(
-                self, "Chưa có vạch",
-                f"Camera \"{device.name}\" chưa vẽ Counting Line.\n"
-                "Vào Camera Config > tab ROI để vẽ vạch trước.",
+                self, tr("No Counting Line"),
+                tr(
+                    "Camera \"{name}\" has no Counting Line.\nGo to Camera Config > ROI tab to draw one first."
+                ).format(name=device.name),
             )
             return
         self._device = device

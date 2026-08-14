@@ -24,14 +24,15 @@ from core.event_dedup import PresenceDedup
 from core.models.camera_device import CameraDevice, DeviceStatus
 from ui.ui_menu.models.camera_model import CameraModel
 from ui.ui_menu.controllers.grid_controller import GridController, GridMode
+from ui.ui_menu.i18n import LanguageManager, tr
 
 # Nhãn hiển thị cho từng loại cảnh báo trong panel SYSTEM ALARMS - key khớp
 # với field tương ứng trong dict do CameraPipeline.ai_result_ready phát ra.
 _ALARM_KINDS = [
-    ("ppe_violation", "⚠ PPE vi phạm"),
-    ("fire_alert", "🔥 Cháy"),
-    ("fall_alert", "🚨 Té ngã"),
-    ("stranger_alert", "🧑‍❓ Người lạ"),
+    ("ppe_violation", "⚠ PPE violation"),
+    ("fire_alert", "🔥 Fire"),
+    ("fall_alert", "🚨 Fall"),
+    ("stranger_alert", "🧑‍❓ Stranger"),
 ]
 
 # Gián đoạn phát hiện ngắn hơn mức này vẫn tính là "đang tiếp diễn" (không
@@ -41,6 +42,19 @@ _ALARM_KINDS = [
 # rồi xuất hiện lại (1 lượt/sự kiện mới).
 _PRESENCE_GRACE_SEC = 5.0
 _MAX_LOG_ITEMS = 100
+
+_TR_TEXT_MAP = {
+    "lbl_page_title": "Live View",
+    "lbl_panel_section_running": "DISPLAY CAMERAS",
+    "lbl_panel_section_detections": "REAL-TIME DETECTION",
+    "lbl_panel_section_alarms": "SYSTEM ALARMS",
+}
+_TR_TOOLTIP_MAP = {
+    "btn_grid_1x1": "1 column × 1 row  (view 1 camera)",
+    "btn_grid_2x3": "2 columns × 3 rows  (6 cameras)",
+    "btn_grid_2x4": "2 columns × 4 rows  (8 cameras)",
+    "btn_grid_4x4": "4 columns × 4 rows  (16 cameras)",
+}
 
 
 class LiveViewPage(QtWidgets.QWidget):
@@ -84,8 +98,20 @@ class LiveViewPage(QtWidgets.QWidget):
         self.device_manager.device_status_changed.connect(lambda *_: self._reload_running_list())
         self.device_manager.pipeline_frame_ready.connect(self._on_pipeline_frame)
         self.device_manager.ai_result_ready.connect(self._on_ai_result)
-        self.btn_quick_alarm_clear.clicked.connect(self._on_clear_alarms)
 
+        self._reload_running_list()
+
+        self.retranslate_ui()
+        LanguageManager.instance().language_changed.connect(self.retranslate_ui)
+
+    # ------------------------------------------------------------------ #
+    # i18n
+    # ------------------------------------------------------------------ #
+    def retranslate_ui(self, _lang: str = "") -> None:
+        for attr, key in _TR_TEXT_MAP.items():
+            getattr(self, attr).setText(tr(key))
+        for attr, key in _TR_TOOLTIP_MAP.items():
+            getattr(self, attr).setToolTip(tr(key))
         self._reload_running_list()
 
     # ------------------------------------------------------------------ #
@@ -103,7 +129,7 @@ class LiveViewPage(QtWidgets.QWidget):
         self.list_running_cameras.blockSignals(True)
         self.list_running_cameras.clear()
         for device in running:
-            item = QListWidgetItem(f"{device.name}   ·  {device.status.value}")
+            item = QListWidgetItem(tr("{name}   ·  {status}").format(name=device.name, status=tr(device.status.value)))
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(
                 Qt.CheckState.Checked if device.id in self._selected_ids else Qt.CheckState.Unchecked
@@ -257,12 +283,12 @@ class LiveViewPage(QtWidgets.QWidget):
     def _log_alarms(self, device_id: str, result: dict) -> None:
         for key, label in _ALARM_KINDS:
             if result.get(key) and self._alarm_dedup.is_new_occurrence((device_id, key)):
-                self._append_log(self.list_alarms, device_id, label, is_alarm=True)
+                self._append_log(self.list_alarms, device_id, tr(label), is_alarm=True)
 
     def _log_detections(self, device_id: str, result: dict) -> None:
         for name in result.get("known_faces", []):
             if self._detection_dedup.is_new_occurrence((device_id, name)):
-                self._append_log(self.list_realtime_detections, device_id, f"👤 Nhận diện {name}")
+                self._append_log(self.list_realtime_detections, device_id, tr("👤 Recognized {name}").format(name=name))
 
     def _append_log(self, list_widget: QtWidgets.QListWidget, device_id: str, text: str, is_alarm: bool = False) -> None:
         device = self.device_manager.get_device(device_id)
@@ -275,6 +301,3 @@ class LiveViewPage(QtWidgets.QWidget):
         while list_widget.count() > _MAX_LOG_ITEMS:
             list_widget.takeItem(list_widget.count() - 1)
 
-    def _on_clear_alarms(self) -> None:
-        self.list_alarms.clear()
-        self._alarm_dedup.clear()

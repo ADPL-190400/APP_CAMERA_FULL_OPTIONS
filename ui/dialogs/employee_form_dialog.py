@@ -8,62 +8,36 @@ scr/Web_API.py:post_employee) - "code" ("employee_code"), "first_name",
 (gửi None nếu để trống, giống code gốc bên MIRAI).
 
 Hỗ trợ quét mã CCCD (đầu đọc barcode/QR USB kiểu "HID keyboard wedge" - gõ
-thẳng ký tự như bàn phím thật) - KHÔNG cần bấm/focus vào ô nào cả: cài 1
-event filter ở cấp QApplication (installEventFilter) trong lúc dialog này
-đang mở, bắt MỌI QKeyEvent bất kể widget con nào đang focus. Ký tự ĐẦU TIÊN
-là chữ số (mọi mã CCCD hợp lệ đều bắt đầu bằng 12 số) sẽ mở 1 "lượt nghi là
-quét" - từ đó CHẶN HẲN các ký tự tiếp theo (không cho lọt vào ô đang focus
-nữa, xem _on_key_press) cho tới khi khớp đủ cấu trúc hoặc hết giờ; gõ tay
-bắt đầu bằng chữ (vd "NV001") không rơi vào nhánh này nên không bị ảnh
-hưởng. (Bản đầu chỉ "quan sát" không chặn - lộ bug: cả chuỗi quét bị gõ
-thẳng như văn bản thường vào đúng ô "Mã nhân viên" đang mặc định focus sẵn
-lúc mở dialog, xem lịch sử sửa.) Ký tự gõ được dồn vào 1 buffer nội bộ; hễ
-nội dung buffer khớp đúng cấu trúc mã QR CCCD chuẩn Bộ Công an
-("so_cccd|so_cmnd_cu|ho_ten|ngay_sinh|gioi_tinh|dia_chi|ngay_cap||||", xem
-parse_cccd_scan()) là coi như "quét xong", tự fill - không cần đợi phím
-Enter (một số đầu đọc không gửi) hay bất kỳ tín hiệu nào khác. Buffer tự
-reset nếu khoảng cách giữa 2 ký tự liên tiếp quá xa so với tốc độ máy quét
-(xem _SCAN_KEY_GAP_SEC) - máy quét gõ nhanh hơn người rất nhiều, nhưng ký tự
-tiếng Việt có dấu có thể chậm hơn ASCII (Windows giải mã Unicode qua chuỗi
-phím numpad nội bộ trước khi Qt nhận được 1 ký tự) nên ngưỡng để khá rộng,
-tránh reset nhầm giữa chừng 1 lượt quét làm mất dữ liệu (bug đã gặp: "quét
-không fill hết thông tin")."""
+thẳng ký tự như bàn phím thật) - KHÔNG cần bấm/focus vào ô nào cả (Qt tự
+focus ô đầu tiên - edit_code - khi dialog mở).
+
+Bản đầu tiên tự dựng lại chuỗi quét bằng cách bắt từng QKeyEvent thô (cài
+event filter ở cấp QApplication) rồi tự nối ký tự lại - CÁCH NÀY SAI, đã bỏ
+hẳn sau khi gặp bug thật: máy có cài phần mềm gõ tiếng Việt kiểu hook toàn
+hệ thống (Unikey/GoTiengViet/EVKey...) chặn MỌI phím rồi tự bắn lại + tự
+chèn thêm phím xoá/phím Telex thô để ghép dấu - khiến chuỗi tự dựng lại bị
+sai (nhân đôi ký tự, hoặc mất chữ khi cố lọc trùng bằng thời gian). Trong
+khi đó bản thân Ô QLineEdit đang focus vẫn luôn hiển thị ĐÚNG nội dung cuối
+cùng (Windows/Unikey xử lý đúng ở tầng widget) - nên bản này đọc THẲNG từ
+`.text()` của ô đang chứa chuỗi quét (qua signal textChanged, gắn cho TẤT
+CẢ QLineEdit trong form) thay vì tự dựng lại - không còn phụ thuộc việc
+"replay" đúng từng phím thô/IME nữa.
+
+Nhận diện điểm BẮT ĐẦU 1 mã CCCD trong text hiện tại của ô bằng NỘI DUNG
+(tìm mẫu "12 số rồi tới dấu |" - _CCCD_START_RE - luôn lấy occurrence CUỐI
+CÙNG, bỏ qua phần gõ tay/rác phía trước) rồi thử khớp parse_cccd_scan() -
+"quét xong" là tự fill ngay, không cần đợi phím Enter (một số đầu đọc không
+gửi) hay tín hiệu nào khác."""
 from __future__ import annotations
 
-import os
-import time
-import unicodedata
+import re
+from datetime import datetime
 from typing import Optional
 
 from PyQt6 import QtWidgets
-from PyQt6.QtCore import QEvent, Qt, QTimer
+from PyQt6.QtCore import Qt
 
-# ── Debug tạm thời cho lỗi quét CCCD (2 lần sửa trước KHÔNG ăn trên máy thật
-# của người dùng dù test giả lập đều pass) - thay vì đoán tiếp cơ chế OS/Qt
-# đang dùng, GHI LẠI đúng luồng event thật (KeyPress/InputMethod, nội dung,
-# thời điểm) mỗi khi có phím tới trong lúc dialog này đang mở, để lần sau
-# test trên máy thật có dữ liệu THẬT thay vì đoán mò. Cố tình bật SẴN
-# (không cần bật cờ gì thêm) vì bug chỉ tái hiện được trên máy có máy quét
-# thật - tắt lại bằng cách đặt _SCAN_DEBUG = False khi đã tìm ra nguyên nhân
-# và không cần log nữa.
-_SCAN_DEBUG = True
-_scan_debug_log_path: Optional[str] = None
-
-
-def _scan_debug(msg: str) -> None:
-    if not _SCAN_DEBUG:
-        return
-    global _scan_debug_log_path
-    try:
-        if _scan_debug_log_path is None:
-            from core.path_manager import BASE_DIR
-            log_dir = os.path.join(BASE_DIR, "logs")
-            os.makedirs(log_dir, exist_ok=True)
-            _scan_debug_log_path = os.path.join(log_dir, "cccd_scan_debug.log")
-        with open(_scan_debug_log_path, "a", encoding="utf-8") as f:
-            f.write(f"{time.time():.3f} {msg}\n")
-    except Exception:
-        pass
+from ui.ui_menu.i18n import tr
 
 # Kiosk restyle - cùng bảng màu dark theme của app (ui/themes/theme_dark.qss)
 # nhưng field/nút to hơn cho dễ chạm trên màn hình cảm ứng. KHÔNG đổi field/
@@ -96,55 +70,14 @@ _SCAN_STATUS_OK_QSS = "color: #00e676; font-size: 11px; font-weight: 600;"
 # các field rỗng phía sau nếu có).
 _CCCD_MIN_FIELDS = 7
 
-# Đ/đ KHÔNG decompose được qua unicodedata.normalize("NFD", ...) như các chữ
-# có dấu khác (ả -> "a" + dấu, nhưng "Đ" là 1 chữ cái Latin Extended-A riêng
-# trong Unicode) - map thủ công để coi "D" là chữ gốc của "Đ".
-_VIET_LETTER_BASE = {"Đ": "D", "đ": "d"}
+# Mẫu đánh dấu điểm BẮT ĐẦU 1 mã CCCD trong text hiện tại của ô (12 số liền
+# nhau rồi tới dấu "|") - xem _on_field_text_changed.
+_CCCD_START_RE = re.compile(r"\d{12}\|")
 
-
-def _char_base(ch: str) -> str:
-    if ch in _VIET_LETTER_BASE:
-        return _VIET_LETTER_BASE[ch]
-    decomposed = unicodedata.normalize("NFD", ch)
-    return decomposed[:1] or ch
-
-
-def _is_next_compose_step(prev: str, new: str) -> bool:
-    """True nếu `new` là CÙNG 1 CHỮ CÁI GỐC với `prev` (vd a/ă/ặ đều gốc "a",
-    D/Đ đều gốc "D") - dùng để gộp lại các bước trung gian mà driver bàn
-    phím/HID Windows gửi thành từng phím RIÊNG BIỆT thay vì gửi thẳng ký tự
-    có dấu cuối cùng (lỗi thật đã gặp khi quét CCCD qua máy quét: "Đặng
-    Hồng" -> "DĐaăặng Hoôồng" - mỗi ký tự có dấu bị "gõ" ra thành cả chuỗi
-    bước hợp dấu trung gian thay vì 1 ký tự cuối).
-
-    CỐ Ý không đòi hỏi `new` phải "nhiều dấu hơn" `prev` (thử as vậy trước
-    đây vẫn KHÔNG khớp được hết các trường hợp thực tế trên máy quét thật -
-    driver/HID có thể gửi các bước hợp dấu theo thứ tự/số lượng khác dự
-    đoán) - chỉ cần CÙNG chữ cái gốc là coi bước sau THAY THẾ bước trước,
-    kể cả khi 2 ký tự giống hệt nhau (dedup luôn các phím lặp/dội của driver).
-
-    Chỉ áp dụng cho CHỮ CÁI (`str.isalpha()`) - KHÔNG áp dụng cho chữ số hay
-    ký tự khác, vì số CCCD có thể có 2 chữ số giống nhau đứng cạnh nhau (vd
-    "...4009698" có "00") và không được phép gộp mất 1 chữ số."""
-    if not prev.isalpha() or not new.isalpha():
-        return False
-    return _char_base(prev).lower() == _char_base(new).lower()
-
-# Khoảng cách tối đa giữa 2 ký tự liên tiếp để còn tính là "cùng 1 lượt quét".
-# Từng để 0.1s (100ms) nhưng THỰC TẾ máy quét bị reset buffer giữa chừng
-# (bug "quét không fill hết thông tin") - có thể do ký tự tiếng Việt có dấu
-# chậm hơn ASCII đáng kể (Windows giải mã qua chuỗi phím numpad nội bộ). Nới
-# lên 0.5s - vẫn nhanh hơn hẳn tốc độ gõ tay của người (trung bình >150-200ms/
-# ký tự), an toàn hơn cho việc mất dữ liệu giữa chừng.
-_SCAN_KEY_GAP_SEC = 0.5
-# Chặn buffer phình vô hạn nếu vì lý do gì đó không bao giờ khớp được.
-_SCAN_BUFFER_MAX_LEN = 300
-# Sau khi 1 lượt quét vừa THÀNH CÔNG, bỏ qua mọi ký tự số "mở đầu buffer mới"
-# tới trong khoảng này - lỗi thật đã gặp: 1 đoạn đuôi chuỗi cũ tới trễ/dội lại
-# ngay sau khi đã quét xong, bị hiểu nhầm thành lượt quét MỚI, dính thêm rác
-# vào field đã đúng. Đủ ngắn để không cản trở quét thẻ KHÁC ngay sau đó (cần
-# vài giây thao tác vật lý: rút thẻ cũ, đưa thẻ mới vào đầu đọc).
-_SCAN_SUCCESS_COOLDOWN_SEC = 0.5
+# Bug đã xác định xong nguyên nhân (đầu đọc CCCD gửi thừa/gửi LẶP LẠI toàn
+# bộ dữ liệu ngay sau khi đã gửi đủ - xem _locked_field/_on_field_text_changed)
+# - TẮT debug, chỉ bật lại (True) nếu cần dò lỗi quét CCCD lần nữa.
+_CCCD_DEBUG = False
 
 
 def parse_cccd_scan(raw: str) -> Optional[dict]:
@@ -154,16 +87,19 @@ def parse_cccd_scan(raw: str) -> Optional[dict]:
     không phải mã CCCD) - dùng làm tín hiệu "đã quét xong" luôn, không cần
     đợi thêm sự kiện nào khác.
 
-    "Mã nhân viên" lấy từ field[0] (số CCCD, 12 số) - field[1] (số CMND cũ,
-    9 số) không dùng tới.
+    "Mã nhân viên" lấy từ field[0] (số CCCD 12 số) - LƯU Ý: nhân viên đã
+    đăng ký TRƯỚC bản này (mã = số CMND cũ, field[1], bản cũ) sẽ không khớp
+    lại nếu quét lại thẻ, có thể tạo hồ sơ trùng - đã xác nhận đổi có chủ ý.
+    field[1] (CMND cũ) chỉ còn dùng để validate đúng cấu trúc CCCD, không
+    lấy giá trị.
     "Tên"/"Họ" tách từ field[2] theo quy ước tiếng Việt: từ CUỐI CÙNG của họ
     tên đầy đủ là "Tên" (first_name), phần còn lại là "Họ" (last_name)."""
     parts = raw.split("|")
     if len(parts) < _CCCD_MIN_FIELDS:
         return None
 
-    employee_code = parts[0].strip()
-    if not (employee_code.isdigit() and len(employee_code) == 12):
+    cccd_no = parts[0].strip()
+    if not (cccd_no.isdigit() and len(cccd_no) == 12):
         return None
     if not parts[1].strip().isdigit():
         return None
@@ -175,50 +111,69 @@ def parse_cccd_scan(raw: str) -> Optional[dict]:
     first_name = name_words[-1]
     last_name = " ".join(name_words[:-1])
 
+    # dd/mm/yyyy - khớp placeholder "DD/MM/YYYY" của edit_dob.
     dob_raw = parts[3].strip()
-    dob_iso = ""
+    dob_formatted = ""
     if len(dob_raw) == 8 and dob_raw.isdigit():
-        dob_iso = f"{dob_raw[4:8]}-{dob_raw[2:4]}-{dob_raw[0:2]}"
+        dob_formatted = f"{dob_raw[0:2]}/{dob_raw[2:4]}/{dob_raw[4:8]}"
 
     return {
-        "code": employee_code,
+        "code": cccd_no,
         "first_name": first_name,
         "last_name": last_name,
-        "dob": dob_iso,
+        "dob": dob_formatted,
         "gender": parts[4].strip() if len(parts) > 4 else "",
         "address": parts[5].strip() if len(parts) > 5 else "",
     }
+
+
+def _dob_to_iso(dob_ddmmyyyy: str) -> Optional[str]:
+    """edit_dob hiển thị/nhập theo "DD/MM/YYYY" nhưng backend đòi ISO 8601
+    (post_employee trả lỗi 400 "dob must be a valid ISO 8601 date string"
+    nếu gửi thẳng "DD/MM/YYYY") - chuyển sang "YYYY-MM-DD" trước khi gửi.
+    Không parse được (rỗng/sai định dạng) -> None, bỏ trường thay vì gửi giá
+    trị chắc chắn bị backend từ chối."""
+    try:
+        return datetime.strptime(dob_ddmmyyyy.strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
+    except (ValueError, AttributeError):
+        return None
+
+
+def _dob_from_iso(dob_iso: str) -> str:
+    """Chiều ngược lại _dob_to_iso - backend trả "dob" theo ISO 8601 (có thể
+    kèm giờ/timezone, vd "2000-04-19T00:00:00.000Z") khi sửa thông tin 1
+    nhân viên đã có sẵn - chuyển về "DD/MM/YYYY" để khớp placeholder/định
+    dạng edit_dob đang dùng. Không parse được -> trả nguyên chuỗi gốc (đỡ
+    mất thông tin hiển thị hơn là để trống)."""
+    text = (dob_iso or "").strip()
+    if not text:
+        return ""
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+    return text
 
 
 class EmployeeFormDialog(QtWidgets.QDialog):
     def __init__(self, employee: Optional[dict] = None, parent=None):
         super().__init__(parent)
         self._is_edit = employee is not None
-        self.setWindowTitle("Sửa thông tin nhân viên" if self._is_edit else "Đăng ký nhân viên mới")
+        self.setWindowTitle(tr("Edit Employee Information") if self._is_edit else tr("Register New Employee"))
         self.setMinimumWidth(440)
         self.setStyleSheet(_DIALOG_QSS)
 
-        self._scan_buffer = ""
-        self._scan_last_key_ts = 0.0
-        self._scan_cooldown_until = 0.0  # xem _SCAN_SUCCESS_COOLDOWN_SEC
-        # Widget đang focus TẠI THỜI ĐIỂM bắt đầu buffer 1 ký tự số đầu tiên
-        # (không tra lại focusWidget() lúc flush - người dùng có thể đã bấm
-        # chuột sang ô khác trong lúc buffer đang chờ, tra lại lúc đó sẽ trả
-        # nhầm ký tự vào ô mới thay vì ô đang gõ dở).
-        self._scan_target_widget: Optional[QtWidgets.QLineEdit] = None
-        # Hết giờ mà không có ký tự tiếp theo (KHÔNG có phím nào tới để tự so
-        # sánh mốc thời gian) -> coi như KHÔNG phải quét, trả lại nguyên văn
-        # đã chặn vào đúng ô đang gõ dở (xem _flush_scan_buffer).
-        self._scan_timer = QTimer(self)
-        self._scan_timer.setSingleShot(True)
-        self._scan_timer.timeout.connect(self._flush_scan_buffer)
+        # "Khoá" 1 ô vừa được fill đúng từ quét thẻ - xem _on_field_text_changed
+        # (bug thật đã gặp: đầu đọc gửi THỪA/LẶP LẠI dữ liệu ngay sau khi đã
+        # gửi đủ, ký tự thừa đó cứ nối tiếp vào ô đang focus làm sai giá trị
+        # đã fill đúng trước đó).
+        self._locked_field: Optional[QtWidgets.QLineEdit] = None
+        self._locked_value: str = ""
 
         self._build_ui()
         if employee:
             self._fill(employee)
-
-        # Cài lúc dựng dialog, gỡ lúc đóng (done()) - xem module docstring.
-        QtWidgets.QApplication.instance().installEventFilter(self)
 
     def _build_ui(self) -> None:
         layout = QtWidgets.QFormLayout(self)
@@ -227,8 +182,10 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         layout.setHorizontalSpacing(16)
 
         self.lbl_scan_status = QtWidgets.QLabel(
-            "💳 Quét thẻ CCCD bất kỳ lúc nào (không cần bấm vào ô nào) để tự điền "
-            "Mã NV/Tên/Họ/Ngày sinh/Giới tính/Địa chỉ, hoặc tự nhập tay bên dưới."
+            tr(
+                "💳 Scan an ID card at any time to auto-fill "
+                "Employee Code/First Name/Last Name/DOB/Gender/Address, or enter manually below."
+            )
         )
         self.lbl_scan_status.setStyleSheet(_SCAN_HINT_QSS)
         self.lbl_scan_status.setWordWrap(True)
@@ -236,30 +193,30 @@ class EmployeeFormDialog(QtWidgets.QDialog):
 
         self.edit_code = QtWidgets.QLineEdit()
         self.edit_code.setPlaceholderText("NV001")
-        layout.addRow("Mã nhân viên *", self.edit_code)
-
-        self.edit_first_name = QtWidgets.QLineEdit()
-        layout.addRow("Tên *", self.edit_first_name)
+        layout.addRow(tr("Employee Code *"), self.edit_code)
 
         self.edit_last_name = QtWidgets.QLineEdit()
-        layout.addRow("Họ *", self.edit_last_name)
+        layout.addRow(tr("Last Name *"), self.edit_last_name)
+
+        self.edit_first_name = QtWidgets.QLineEdit()
+        layout.addRow(tr("First Name *"), self.edit_first_name)
 
         self.edit_gender = QtWidgets.QLineEdit()
-        self.edit_gender.setPlaceholderText("Nam / Nữ")
-        layout.addRow("Giới tính", self.edit_gender)
+        self.edit_gender.setPlaceholderText("Male / Female")
+        layout.addRow(tr("Gender"), self.edit_gender)
 
         self.edit_dob = QtWidgets.QLineEdit()
-        self.edit_dob.setPlaceholderText("YYYY-MM-DD")
-        layout.addRow("Ngày sinh", self.edit_dob)
+        self.edit_dob.setPlaceholderText("DD/MM/YYYY")
+        layout.addRow(tr("Date of Birth"), self.edit_dob)
 
         self.edit_address = QtWidgets.QLineEdit()
-        layout.addRow("Địa chỉ", self.edit_address)
+        layout.addRow(tr("Address"), self.edit_address)
 
         self.edit_phone = QtWidgets.QLineEdit()
-        layout.addRow("Số điện thoại", self.edit_phone)
+        layout.addRow(tr("Phone Number"), self.edit_phone)
 
         self.edit_email = QtWidgets.QLineEdit()
-        layout.addRow("Email", self.edit_email)
+        layout.addRow(tr("Email"), self.edit_email)
 
         # Sửa thông tin nhân viên đã đăng ký -> không cho đổi mã nhân viên
         # (mã dùng để định danh thư mục ảnh + có thể là khoá tra cứu phía
@@ -295,6 +252,16 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
+        # Quét mã CCCD - xem module docstring: gắn textChanged cho TẤT CẢ ô,
+        # đọc text ĐÃ được Qt/Windows xử lý xong (đúng cả khi có IME tiếng
+        # Việt can thiệp) thay vì tự dựng lại từ QKeyEvent thô.
+        for edit in (
+            self.edit_code, self.edit_first_name, self.edit_last_name,
+            self.edit_gender, self.edit_dob, self.edit_address,
+            self.edit_phone, self.edit_email,
+        ):
+            edit.textChanged.connect(self._on_field_text_changed)
+
     def keyPressEvent(self, event) -> None:
         # Lưới an toàn THỨ 2 (setAutoDefault/setDefault ở trên KHÔNG ăn
         # chắc - đã kiểm chứng QDialogButtonBox tự set lại nút OK thành
@@ -307,209 +274,70 @@ class EmployeeFormDialog(QtWidgets.QDialog):
             return
         super().keyPressEvent(event)
 
-    # ── Quét mã CCCD (bắt phím toàn dialog, không cần focus ô nào) ──────────
-    def eventFilter(self, obj, event) -> bool:
-        if _SCAN_DEBUG and event.type() in (QEvent.Type.KeyPress, QEvent.Type.InputMethod):
-            # Ghi lại NGUYÊN VĂN mọi event tới đây, kể cả InputMethod lúc
-            # buffer đang RỖNG (để kiểm tra luôn giả thiết "số CCCD luôn tới
-            # qua KeyPress" - nếu giả thiết đó cũng sai trên máy người dùng,
-            # log này sẽ lộ ra ngay).
-            if event.type() == QEvent.Type.KeyPress:
-                _scan_debug(
-                    f"KeyPress obj={obj.objectName() if hasattr(obj, 'objectName') else obj!r} "
-                    f"text={event.text()!r} key={event.key()} buffer={self._scan_buffer!r}"
-                )
-            else:
-                _scan_debug(
-                    f"InputMethod obj={obj.objectName() if hasattr(obj, 'objectName') else obj!r} "
-                    f"commit={event.commitString()!r} preedit={event.preeditString()!r} "
-                    f"buffer={self._scan_buffer!r}"
-                )
-        if event.type() == QEvent.Type.KeyPress:
-            if self._on_key_press(event):
-                return True  # CHẶN - không cho ký tự này lọt vào ô đang focus (xem _on_key_press)
-        elif event.type() == QEvent.Type.InputMethod and self._scan_buffer:
-            # Thực tế đã xác nhận: quét thẻ vào Notepad (không qua Qt) ra
-            # đúng chữ tuyệt đối ("Đặng Hồng Bảo"), nhưng quét vào chính
-            # dialog này thì các ký tự có dấu vẫn bị lặp/gãy dấu ("Đặng Hồng"
-            # -> "DĐaăặng Hoôồng") DÙ ĐÃ gộp theo _is_next_compose_step ở
-            # _on_key_press - nghĩa là driver KHÔNG hề gửi ký tự trung gian,
-            # dữ liệu vào hệ điều hành vốn đã sạch/đúng ngay từ đầu. Nguyên
-            # nhân thực sự: Windows/Qt định tuyến các ký tự tiếng Việt có dấu
-            # qua cơ chế IME/composition (QInputMethodEvent), KHÔNG qua
-            # KeyPress bình thường như số/chữ không dấu/"|" - nên toàn bộ
-            # logic ở _on_key_press không bao giờ thấy được các ký tự này,
-            # chúng lọt thẳng (không bị chặn) vào ô đang focus qua đường
-            # input-method mặc định của chính QLineEdit, cộng dồn lên trên
-            # phần đã được _apply_scanned_data() điền đúng.
-            #
-            # commitString() của Qt là ký tự/đoạn ĐÃ ghép dấu xong hoàn
-            # chỉnh (Qt tự quản lý preedit nội bộ trước khi commit, không
-            # cần tự gộp bước trung gian như _is_next_compose_step) - chỉ
-            # cần nối thẳng vào buffer. CHỈ xử lý khi đang có 1 buffer dở
-            # dang (đã bắt đầu từ số CCCD qua KeyPress) - tránh chặn nhầm
-            # gõ tay tiếng Việt bình thường lúc không quét gì cả.
-            if self._on_input_method(event):
-                return True
-        elif (
-            event.type() == QEvent.Type.FocusIn
-            and self._scan_buffer
-            and self._scan_target_widget is not None
-            and obj is not self._scan_target_widget
-        ):
-            # Có 1 buffer đang chờ dở dang MÀ nó bắt đầu từ 1 Ô CỤ THỂ đang
-            # gõ dở (self._scan_target_widget không None), và focus vừa
-            # chuyển sang Ô KHÁC (bấm chuột/Tab) trước khi kịp hết giờ chờ -
-            # chốt lại NGAY, không đợi timer nữa. Không làm vậy thì ký tự gõ
-            # tiếp theo ở ô MỚI sẽ bị cộng nhầm vào buffer của ô CŨ (đã kiểm
-            # chứng bằng test: gõ dở "NV002" ở Mã NV rồi bấm sang ô Tên gõ
-            # tiếp "Test" -> "Test" bị dính vào Mã NV).
-            #
-            # CHỈ xét khi target KHÔNG None - lúc quét thẻ mà KHÔNG bấm/focus
-            # ô nào cả (đúng luồng chính), Qt có thể tự gán focus mặc định
-            # cho 1 ô nào đó ngay trong lúc đang quét dở (không phải do
-            # người dùng bấm) - nếu cũng flush ở đây sẽ huỷ ngang lượt quét
-            # thật giữa chừng (bug đã gặp: chế độ Sửa, ô Mã NV bị khoá nên
-            # không có focus rõ ràng lúc mở dialog, quét bị huỷ ngang).
-            self._flush_scan_buffer()
-        return super().eventFilter(obj, event)
+    # ── Quét mã CCCD (đọc text đã hoàn chỉnh của ô đang gõ - xem module
+    # docstring, KHÔNG tự dựng lại từ QKeyEvent thô nữa) ─────────────────────
+    def _on_field_text_changed(self, text: str) -> None:
+        sender = self.sender()
 
-    def _on_key_press(self, event) -> bool:
-        """Trả về True nếu ký tự này CẦN CHẶN (không cho ô đang focus nhận
-        được) vì đang trong 1 chuỗi nghi là quét thẻ.
+        # Bảo vệ ô VỪA được fill đúng từ 1 lượt quét trước đó (khớp
+        # self._locked_field) - bug thật đã gặp: đầu đọc CCCD gửi thừa/gửi
+        # LẶP LẠI toàn bộ dữ liệu ngay sau khi đã gửi đủ (không phải lỗi
+        # parse), ký tự thừa đó cứ nối tiếp vào ô đang focus (vẫn đúng ô vừa
+        # fill) làm sai giá trị đã đúng (vd "079090028504" -> nối thêm
+        # "22122021..." thành rác). Text rỗng (người dùng chủ động xoá
+        # trắng) -> MỞ KHOÁ, cho gõ tay tự do trở lại. Text khác giá trị đã
+        # khoá -> khôi phục lại ngay, bỏ qua ký tự thừa.
+        if sender is self._locked_field:
+            if not text:
+                self._locked_field = None
+            elif text != self._locked_value:
+                sender.blockSignals(True)
+                sender.setText(self._locked_value)
+                sender.blockSignals(False)
+                return
 
-        Ô "Mã nhân viên" là ô đầu tiên trong form nên MẶC ĐỊNH được focus
-        sẵn lúc dialog vừa mở - trước đây filter chỉ "quan sát" (không chặn)
-        nên toàn bộ chuỗi quét (kể cả ký tự "|") bị gõ thẳng như văn bản
-        thường vào đúng ô đó, hiện ra 1 đống chữ lộn xộn CHỈ ở "Mã nhân
-        viên" trong khi các ô khác không có gì (bug đã gặp: "quét chỉ fill
-        vào mã NV rồi thôi"). Phải CHẶN hẳn trong lúc đang tích luỹ 1 lượt
-        quét, chỉ khi khớp đủ cấu trúc mới thật sự fill (_apply_scanned_data).
-
-        Chỉ bắt đầu chặn khi ký tự ĐẦU buffer là 1 CHỮ SỐ (mọi mã CCCD hợp lệ
-        đều bắt đầu bằng 12 số) - gõ tay bình thường bắt đầu bằng chữ (vd
-        "NV001", 2 ký tự đầu "N"/"V") không rơi vào nhánh này. Nhưng nếu
-        NGƯỜI DÙNG gõ tay 1 mã có số ở đâu đó (vd tiếp sau "N"/"V" là "001")
-        thì các số đó SẼ bị tạm chặn/tích luỹ giống hệt đang nghi ngờ là quét
-        - để không mất chữ đã gõ, buffer đó được TRẢ LẠI (chèn nguyên văn vào
-        đúng ô đang gõ dở) qua _flush_scan_buffer() nếu hết giờ không khớp
-        được cấu trúc CCCD nào (xem _scan_timer)."""
-        now = time.monotonic()
-        gap_exceeded = now - self._scan_last_key_ts > _SCAN_KEY_GAP_SEC
-        self._scan_last_key_ts = now
-
-        text = event.text()
         if not text:
-            return False  # phím điều khiển (mũi tên, Ctrl...) không có ký tự - không liên quan
+            return
 
-        if gap_exceeded and self._scan_buffer:
-            # Lượt trước bị bỏ dở (không có ký tự nào tới kịp trong
-            # _SCAN_KEY_GAP_SEC để chính nó kích hoạt _scan_timer xử lý) -
-            # trả lại trước khi xét ký tự MỚI này như 1 khởi đầu hoàn toàn
-            # riêng biệt.
-            self._flush_scan_buffer()
+        # Chỉ thử parse từ điểm BẮT ĐẦU mã CCCD gần nhất trong text hiện tại
+        # (xem _CCCD_START_RE/module docstring) - bỏ qua phần gõ tay/rác phía
+        # trước nếu có.
+        start = None
+        for m in _CCCD_START_RE.finditer(text):
+            start = m.start()
+        candidate = text[start:] if start is not None else text
 
-        if not self._scan_buffer:
-            if now < self._scan_cooldown_until:
-                # Vừa quét THÀNH CÔNG cách đây rất gần (xem _apply_scanned_data)
-                # - ký tự số mới tới ngay sau đó nhiều khả năng là dữ liệu
-                # dội/lặp lại của CHÍNH lượt quét vừa xong (đã gặp thật: 1 đoạn
-                # đuôi chuỗi cũ "23092024||||" tới trễ, dính thêm vào Mã nhân
-                # viên đã đúng) chứ không phải quét thẻ mới hay gõ tay - bỏ hẳn
-                # ký tự này, không mở buffer mới.
-                return True
-            if not text.isdigit():
-                return False  # ký tự ĐẦU không phải số -> chắc chắn không phải mở đầu 1 mã CCCD, cho gõ tay bình thường, không đụng vào buffer
-            self._scan_target_widget = QtWidgets.QApplication.focusWidget()
+        parsed = parse_cccd_scan(candidate)
+        if _CCCD_DEBUG:
+            field_names = {
+                self.edit_code: "code", self.edit_first_name: "first_name",
+                self.edit_last_name: "last_name", self.edit_gender: "gender",
+                self.edit_dob: "dob", self.edit_address: "address",
+                self.edit_phone: "phone", self.edit_email: "email",
+            }
+            print(f"[CCCD-DEBUG] field={field_names.get(sender, sender)!r} text={text!r}", flush=True)
+            print(f"[CCCD-DEBUG] candidate={candidate!r}", flush=True)
+            print(f"[CCCD-DEBUG] parse_cccd_scan -> {parsed!r}", flush=True)
+        if parsed is None:
+            return
 
-        if event.key() == Qt.Key.Key_Backspace:
-            # NGUYÊN NHÂN THẬT của lỗi lặp/gãy dấu (xác nhận bằng log debug
-            # thật từ máy người dùng, KHÔNG còn là suy đoán): máy quét gõ
-            # từng ký tự có dấu bằng cách gõ CHỮ GỐC không dấu, rồi gửi 1
-            # phím Backspace THẬT (event.text() == "\x08", key ==
-            # Key_Backspace), rồi gõ lại đúng ký tự đã có dấu - vd chuỗi
-            # thật nhận được cho "Đ" là: "D", Backspace, "Đ". 2 lần sửa
-            # trước (_is_next_compose_step, rồi QInputMethodEvent) đều SAI
-            # vì đoán nhầm cơ chế - Backspace trước giờ bị coi là 1 ký tự
-            # thường rồi CỘNG THẲNG vào buffer ("D\x08Đ") thay vì THỰC HIỆN
-            # đúng tác dụng xoá lùi của nó. Chỉ cần xoá đúng 1 ký tự cuối
-            # buffer, y hệt Backspace thật làm trên 1 ô nhập liệu bình
-            # thường - không cần đoán "chữ nào cùng gốc" nữa.
-            if self._scan_buffer:
-                self._scan_buffer = self._scan_buffer[:-1]
-            return True
+        self._apply_scanned_data(parsed)
+        # Phone/Email là 2 field DUY NHẤT _apply_scanned_data không đụng tới
+        # - nếu lượt quét lỡ rơi vào 1 trong 2 ô này (focus nhầm trước khi
+        # quét) thì xoá luôn, tránh sót lại rác quét. KHÔNG khoá 2 field này
+        # (không đi qua nhánh bên dưới) - khoá vào giá trị "" sẽ làm 2 ô này
+        # không bao giờ gõ tay được nữa (mọi ký tự gõ vào sau đó đều khác ""
+        # nên bị hiểu nhầm là rác cần khôi phục).
+        if sender in (self.edit_phone, self.edit_email):
+            sender.blockSignals(True)
+            sender.clear()
+            sender.blockSignals(False)
+            return
 
-        if self._scan_buffer and _is_next_compose_step(self._scan_buffer[-1], text):
-            # Ký tự MỚI là bước ghép dấu tiếp theo của CHÍNH ký tự cuối buffer
-            # (vd vừa thêm "ă", giờ tới "ặ") - THAY THẾ, không nối thêm (xem
-            # _is_next_compose_step - lỗi thật đã gặp: driver gửi từng bước
-            # trung gian thành phím riêng, "Đặng" thành "DĐaăặng").
-            self._scan_buffer = self._scan_buffer[:-1] + text
-        else:
-            self._scan_buffer += text
-
-        return self._after_buffer_append(now)
-
-    def _on_input_method(self, event) -> bool:
-        """Xử lý phần ký tự có dấu tiếng Việt đi qua đường IME/composition
-        (QInputMethodEvent) thay vì KeyPress - xem giải thích chi tiết ở
-        eventFilter(). commitString() đã LÀ ký tự/đoạn ghép dấu cuối cùng,
-        đúng hoàn toàn (Qt tự quản lý preedit nội bộ) - không cần gộp bước
-        trung gian như _is_next_compose_step (đường KeyPress mới cần).
-
-        Khi commitString() rỗng (đang trong lúc preedit, chưa chốt) - vẫn
-        CHẶN (return True), không cho hiện tạm preedit vào ô đang focus
-        (tránh nháy chữ tạm lên UI trong lúc quét), chờ tới lúc thật sự
-        commit mới xử lý tiếp."""
-        commit = event.commitString()
-        if not commit:
-            return True
-        now = time.monotonic()
-        self._scan_last_key_ts = now
-        self._scan_buffer += commit
-        return self._after_buffer_append(now)
-
-    def _after_buffer_append(self, now: float) -> bool:
-        """Phần xử lý DÙNG CHUNG sau khi có thêm ký tự/đoạn mới vào
-        _scan_buffer, bất kể nguồn là KeyPress (_on_key_press) hay IME
-        composition (_on_input_method) - kiểm tra độ dài bất thường, khớp
-        cấu trúc CCCD, hoặc hẹn giờ chờ tiếp."""
-        if len(self._scan_buffer) > _SCAN_BUFFER_MAX_LEN:
-            # Dài bất thường mà vẫn chưa khớp -> chắc chắn không phải mã
-            # CCCD (lượt quét thật khớp rất sớm ngay khi đủ field) - trả lại
-            # toàn bộ, không giữ tiếp.
-            self._flush_scan_buffer()
-            return False
-
-        parsed = parse_cccd_scan(self._scan_buffer)
-        if parsed is not None:
-            _scan_debug(f"MATCHED raw_buffer={self._scan_buffer!r} parsed={parsed!r}")
-            self._apply_scanned_data(parsed)
-            self._scan_buffer = ""
-            self._scan_target_widget = None
-            self._scan_timer.stop()
-            self._scan_cooldown_until = now + _SCAN_SUCCESS_COOLDOWN_SEC
-            return True
-
-        # Chưa khớp - có thể còn đang quét dở (ký tự tiếp theo sắp tới) hoặc
-        # là gõ tay tình cờ bắt đầu bằng số - hẹn giờ, hết giờ mà không có gì
-        # thêm thì _flush_scan_buffer() tự trả lại (xem __init__).
-        self._scan_timer.start(int(_SCAN_KEY_GAP_SEC * 1000))
-        return True
-
-    def _flush_scan_buffer(self) -> None:
-        """Buffer đang tích luỹ dở KHÔNG khớp được cấu trúc CCCD nào trong
-        thời gian chờ - kết luận đây KHÔNG phải 1 lượt quét, trả lại nguyên
-        văn các ký tự đã tạm chặn vào ĐÚNG ô đang gõ dở lúc bắt đầu buffer
-        (không tra lại focus hiện tại - có thể người dùng đã bấm sang ô khác
-        trong lúc chờ)."""
-        self._scan_timer.stop()
-        text, self._scan_buffer = self._scan_buffer, ""
-        widget, self._scan_target_widget = self._scan_target_widget, None
-        if text:
-            _scan_debug(f"FLUSH (khong khop CCCD) text={text!r} widget={widget!r}")
-        if text and isinstance(widget, QtWidgets.QLineEdit):
-            widget.insert(text)
+        # Khoá lại field VỪA fill đúng (code/first_name/last_name/dob/
+        # gender/address) - xem đầu hàm.
+        self._locked_field = sender
+        self._locked_value = sender.text()
 
     def _apply_scanned_data(self, data: dict) -> None:
         """Chuỗi quét MỚI (khác thẻ trước đó) -> GHI ĐÈ toàn bộ field liên
@@ -523,7 +351,7 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         self.edit_dob.setText(data["dob"])
         self.edit_gender.setText(data["gender"])
         self.edit_address.setText(data["address"])
-        self.lbl_scan_status.setText("✓ Đã điền thông tin từ thẻ vừa quét.")
+        self.lbl_scan_status.setText(tr("✓ Information filled from the scanned card."))
         self.lbl_scan_status.setStyleSheet(_SCAN_STATUS_OK_QSS)
 
     # ── Sửa/điền tay ─────────────────────────────────────────────────────
@@ -532,18 +360,16 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         self.edit_first_name.setText(str(employee.get("first_name") or ""))
         self.edit_last_name.setText(str(employee.get("last_name") or ""))
         self.edit_gender.setText(str(employee.get("gender") or ""))
-        self.edit_dob.setText(str(employee.get("dob") or ""))
+        self.edit_dob.setText(_dob_from_iso(str(employee.get("dob") or "")))
         self.edit_address.setText(str(employee.get("address") or ""))
         self.edit_phone.setText(str(employee.get("phone") or ""))
         self.edit_email.setText(str(employee.get("email") or ""))
 
     def _on_accept(self) -> None:
-        # Bấm OK ngay khi 1 buffer đang chờ hết giờ (vd vừa gõ tay xong số
-        # cuối rồi bấm OK liền, chưa đủ _SCAN_KEY_GAP_SEC để tự flush) -
-        # flush ngay để không mất mấy ký tự cuối trước khi validate.
-        self._flush_scan_buffer()
         if not self.edit_code.text().strip() or not self.edit_first_name.text().strip() or not self.edit_last_name.text().strip():
-            QtWidgets.QMessageBox.warning(self, "Thiếu thông tin", "Vui lòng điền Mã nhân viên, Tên và Họ.")
+            QtWidgets.QMessageBox.warning(
+                self, tr("Missing Information"), tr("Please fill in Employee Code, First Name and Last Name.")
+            )
             return
         self.accept()
 
@@ -553,17 +379,8 @@ class EmployeeFormDialog(QtWidgets.QDialog):
             "first_name": self.edit_first_name.text().strip(),
             "last_name": self.edit_last_name.text().strip(),
             "gender": self.edit_gender.text().strip() or None,
-            "dob": self.edit_dob.text().strip() or None,
+            "dob": _dob_to_iso(self.edit_dob.text()),
             "address": self.edit_address.text().strip() or None,
             "phone": self.edit_phone.text().strip() or None,
             "email": self.edit_email.text().strip() or None,
         }
-
-    def done(self, result: int) -> None:
-        # Gỡ event filter TOÀN CỤC ngay khi dialog đóng (OK/Cancel/X đều đi
-        # qua done()) - không gỡ thì filter vẫn "sống" trên QApplication sau
-        # khi dialog đã bị huỷ, rò rỉ + có thể lỗi khi eventFilter cố truy
-        # cập self của 1 dialog đã chết.
-        QtWidgets.QApplication.instance().removeEventFilter(self)
-        self._scan_timer.stop()
-        super().done(result)

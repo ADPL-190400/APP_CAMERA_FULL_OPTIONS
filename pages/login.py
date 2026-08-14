@@ -5,6 +5,7 @@ from scr import Web_API
 from core.account_context import set_current_account
 from core.known_faces_store import KnownFacesStore
 from core.path_manager import BASE_DIR
+from ui.ui_menu.i18n import tr
 import os
 
 
@@ -14,25 +15,36 @@ class LoginPage(QMainWindow):
         ui_path = os.path.join(BASE_DIR, "ui", "login.ui")
         uic.loadUi(ui_path, self)
 
+        # Trang login KHÔNG có nút chọn ngôn ngữ riêng (chỉ có ở top-bar
+        # menu_window.ui, sau khi đăng nhập) - đọc ngôn ngữ hiện tại của
+        # LanguageManager (đổi từ trước, hoặc sau khi Logout) để hiển thị
+        # nhất quán, không tự reset về mặc định mỗi lần quay lại màn hình này.
+        self.retranslate_ui()
+
         self.btn_login.clicked.connect(self.login)
         self.btn_pw_state.clicked.connect(self.toggle_password_visibility)
 
-        
+    def retranslate_ui(self) -> None:
+        self.label.setText(tr("Welcome"))
+        self.user_input.setPlaceholderText(tr("User Name"))
+        self.pw_input.setPlaceholderText(tr("Password"))
+        self.btn_login.setText(tr("Login"))
+
+
 
     def login(self):
         entered_user = self.user_input.text()
         user = entered_user
         pw = self.pw_input.text()
-        user = 'ai@gmail.com'
-        pw = '123456'
+        
         if not all([user, pw]):
-            print("Có trường bị bỏ trống")
+            # print("Có trường bị bỏ trống")
         #     QMessageBox.warning(
         #     self,
         #     "Thiếu thông tin",
         #     "Vui lòng nhập đầy đủ tài khoản và mật khẩu."
         # )
-            self.show_custom_msg("Thiếu thông tin", "Vui lòng nhập đầy đủ tài khoản và mật khẩu.")
+            self.show_custom_msg(tr("Missing Information"), tr("Please enter both your account and password."))
             return
 
         is_login = Web_API.get_api(user,pw)
@@ -50,7 +62,10 @@ class LoginPage(QMainWindow):
         # self,
         # "Đăng nhập thất bại",
         # "Sai tài khoản hoặc mật khẩu!\nVui lòng kiểm tra lại.)"
-            self.show_custom_msg("Đăng nhập thất bại", "Sai tài khoản hoặc mật khẩu!\nKiểm tra lại kết nối hoặc thông tin.")
+            self.show_custom_msg(
+                tr("Login Failed"),
+                tr("Incorrect account or password!\nPlease check your connection or credentials."),
+            )
     
 
     def accept_login(self, username: str = ""):

@@ -1,6 +1,7 @@
 """
-Model dữ liệu cho 1 sự kiện cảnh báo (Event Log) - ppe/fire/fall/stranger,
-mỗi sự kiện kèm 1 ảnh bằng chứng (full frame lúc alert được xác nhận).
+Model dữ liệu cho 1 sự kiện cảnh báo (Event Log) - ppe/fire/fall/stranger/
+face_checkin, mỗi sự kiện kèm 1 ảnh bằng chứng (full frame lúc alert/nhận
+diện được xác nhận).
 """
 from __future__ import annotations
 
@@ -14,14 +15,16 @@ class EventKind(str, Enum):
     FIRE_ALERT = "fire_alert"
     FALL_ALERT = "fall_alert"
     STRANGER_ALERT = "stranger_alert"
+    FACE_CHECKIN = "face_checkin"  # FaceApp nhận diện người quen - xem pages/face_attendance_page.py
 
 
 # kind -> tên hiển thị (dùng chung cho event_log_page + mọi nơi khác cần label)
 EVENT_KIND_LABELS: dict[EventKind, str] = {
-    EventKind.PPE_VIOLATION: "PPE vi phạm",
-    EventKind.FIRE_ALERT: "Cháy / Khói",
-    EventKind.FALL_ALERT: "Té ngã",
-    EventKind.STRANGER_ALERT: "Người lạ",
+    EventKind.PPE_VIOLATION: "PPE Violation",
+    EventKind.FIRE_ALERT: "Fire / Smoke",
+    EventKind.FALL_ALERT: "Fall",
+    EventKind.STRANGER_ALERT: "Stranger",
+    EventKind.FACE_CHECKIN: "Check-in",
 }
 
 # kind -> type_id gửi kèm Web_API.send_mobile_incident() - đã xác nhận với

@@ -16,6 +16,7 @@ from core.network_utils import (
     get_local_subnet_prefix,
     get_mac_address,
 )
+from ui.ui_menu.i18n import tr
 
 _SCAN_TIMEOUT = 0.3
 
@@ -33,11 +34,11 @@ class DeviceDiscoveryWorker(QThread):
         found: list[CameraDevice] = []
 
         if self.scan_usb:
-            self.progress.emit("Đang quét camera USB...")
+            self.progress.emit(tr("Scanning USB cameras..."))
             found.extend(self._scan_usb())
 
         if self.scan_network:
-            self.progress.emit("Đang quét camera IP trong mạng LAN...")
+            self.progress.emit(tr("Scanning IP cameras on the LAN..."))
             found.extend(self._scan_network())
 
         self.finished_scan.emit(found)
@@ -62,7 +63,7 @@ class DeviceDiscoveryWorker(QThread):
     def _scan_network(self) -> list[CameraDevice]:
         subnet_prefix = get_local_subnet_prefix()
         if subnet_prefix is None:
-            self.progress.emit("Không xác định được subnet mạng LAN.")
+            self.progress.emit(tr("Could not determine the LAN subnet."))
             return []
 
         hosts = [f"{subnet_prefix}.{i}" for i in range(1, 255)]

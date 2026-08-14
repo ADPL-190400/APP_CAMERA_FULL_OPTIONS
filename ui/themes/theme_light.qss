@@ -348,13 +348,29 @@ QLabel#lbl_ram_usage {
     font-weight: 500;
 }
 
-QLabel#lbl_user,
 QLabel#lbl_datetime {
     color: #2a3550;
     font-size: 12px;
 }
 
-QPushButton#btn_notify,
+QPushButton#btn_user_menu {
+    background-color: transparent;
+    border: none;
+    color: #2a3550;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 8px;
+    min-height: 0px;
+}
+QPushButton#btn_user_menu:hover {
+    color: #0077cc;
+}
+QPushButton#btn_user_menu::menu-indicator {
+    subcontrol-origin: padding;
+    subcontrol-position: right center;
+    left: 4px;
+}
+
 QPushButton#btn_dark_mode {
     background-color: #e4e8f2;
     border: 1px solid #c8d0e0;
@@ -367,8 +383,25 @@ QPushButton#btn_dark_mode {
     min-height: 34px;
     max-height: 34px;
 }
-QPushButton#btn_notify:hover,
 QPushButton#btn_dark_mode:hover {
+    background-color: #cce4f7;
+    color: #0077cc;
+    border-color: #0077cc;
+}
+
+QPushButton#btn_language {
+    background-color: #e4e8f2;
+    border: 1px solid #c8d0e0;
+    border-radius: 6px;
+    color: #4a5a80;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0px 10px;
+    min-width: 34px;
+    min-height: 34px;
+    max-height: 34px;
+}
+QPushButton#btn_language:hover {
     background-color: #cce4f7;
     color: #0077cc;
     border-color: #0077cc;
@@ -433,7 +466,8 @@ QLabel#lbl_logo_sub {
 }
 
 QLabel#lbl_section_main,
-QLabel#lbl_section_monitor {
+QLabel#lbl_section_monitor,
+QLabel#lbl_section_attendance {
     color: #aabbdd;
     font-size: 10px;
     font-weight: 700;
@@ -594,6 +628,7 @@ QWidget#rightPanel {
     max-width: 260px;
 }
 
+QLabel#lbl_panel_section_running,
 QLabel#lbl_panel_section_detections,
 QLabel#lbl_panel_section_alarms {
     color: #8899bb;
@@ -601,11 +636,6 @@ QLabel#lbl_panel_section_alarms {
     font-weight: 700;
     letter-spacing: 2px;
     border-bottom: 1px solid #c8d0e0;
-}
-QLabel#lbl_panel_title {
-    color: #2a3550;
-    font-size: 12px;
-    font-weight: 600;
 }
 
 QListWidget#list_realtime_detections,
@@ -1006,7 +1036,7 @@ QPushButton#btn_stop_device:pressed {
 }
 
 QLabel#lbl_total_find {
-    color: #ffffff;
+    color: #0077cc;
     font-size: 11px;
     font-weight: 600;
     font-family: monospace;

@@ -14,9 +14,6 @@
    <property name="spacing">
     <number>0</number>
    </property>
-   <property name="contentsMargins" stdset="0">
-    <number>0</number>
-   </property>
    <item>
     <widget class="QSplitter" name="splitter_main">
      <property name="orientation">
@@ -32,9 +29,6 @@
       <layout class="QVBoxLayout" name="layout_sidebar">
        <property name="spacing">
         <number>6</number>
-       </property>
-       <property name="contentsMargins" stdset="0">
-        <number>8</number>
        </property>
        <item>
         <widget class="QLineEdit" name="edit_search_camera">
@@ -73,9 +67,6 @@
        <property name="spacing">
         <number>0</number>
        </property>
-       <property name="contentsMargins" stdset="0">
-        <number>0</number>
-       </property>
        <item>
         <widget class="QTabWidget" name="tab_camera_config">
          <property name="tabPosition">
@@ -95,9 +86,6 @@
            <property name="spacing">
             <number>12</number>
            </property>
-           <property name="contentsMargins" stdset="0">
-            <number>12</number>
-           </property>
            <item>
             <widget class="QScrollArea" name="scroll_basic">
              <property name="frameShape">
@@ -111,8 +99,8 @@
                <rect>
                 <x>0</x>
                 <y>0</y>
-                <width>803</width>
-                <height>700</height>
+                <width>860</width>
+                <height>1102</height>
                </rect>
               </property>
               <layout class="QVBoxLayout" name="verticalLayout">
@@ -131,9 +119,6 @@
                   <property name="verticalSpacing">
                    <number>8</number>
                   </property>
-                  <property name="contentsMargins" stdset="0">
-                   <number>12</number>
-                  </property>
                   <item row="0" column="0">
                    <widget class="QLabel" name="lbl_camera_name">
                     <property name="text">
@@ -151,17 +136,17 @@
                   <item row="1" column="0">
                    <widget class="QLabel" name="lbl_camera_id">
                     <property name="text">
-                     <string>Camera ID (nội bộ)</string>
+                     <string>Camera ID</string>
                     </property>
                    </widget>
                   </item>
                   <item row="1" column="1">
                    <widget class="QLineEdit" name="edit_camera_id">
+                    <property name="toolTip">
+                     <string>App-generated internal ID used as the lookup key for this camera in DeviceManager - not editable, and NOT the camera_id sent to the web server (see the &quot;MAC Address&quot; field below for that).</string>
+                    </property>
                     <property name="readOnly">
                      <bool>true</bool>
-                    </property>
-                    <property name="toolTip">
-                     <string>ID nội bộ app tự sinh, dùng làm khoá tra cứu camera trong DeviceManager - không sửa được, và KHÔNG phải camera_id gửi lên web server (xem field "MAC Address" bên dưới cho việc đó).</string>
                     </property>
                    </widget>
                   </item>
@@ -224,9 +209,6 @@
                   <property name="verticalSpacing">
                    <number>8</number>
                   </property>
-                  <property name="contentsMargins" stdset="0">
-                   <number>12</number>
-                  </property>
                   <item row="0" column="0">
                    <widget class="QLabel" name="lbl_ip_address">
                     <property name="text">
@@ -264,21 +246,21 @@
                   </item>
                   <item row="2" column="1">
                    <widget class="QLineEdit" name="edit_substream_url">
-                    <property name="placeholderText">
-                     <string>rtsp://user:pass@192.168.1.100/substream (để trống nếu dùng Stream URL)</string>
-                    </property>
                     <property name="toolTip">
-                     <string>Luồng phụ (độ phân giải thấp) dùng cho AI + xem trực tiếp thay vì Stream URL - giảm băng thông/CPU decode, không ảnh hưởng độ chính xác AI vì đã tự resize xuống &lt;=640px. Để trống để dùng Stream URL (mainstream) như trước.</string>
+                     <string>Low-resolution substream used for AI + live preview instead of the Stream URL - reduces bandwidth/decode CPU, doesn't affect AI accuracy since frames are auto-resized to &lt;=640px anyway. Leave empty to use the Stream URL (mainstream) as before.</string>
+                    </property>
+                    <property name="placeholderText">
+                     <string>rtsp://user:pass@192.168.1.100/substream</string>
                     </property>
                    </widget>
                   </item>
                   <item row="3" column="1">
                    <widget class="QCheckBox" name="check_use_substream">
-                    <property name="text">
-                     <string>Dùng Substream (thay vì Stream URL) nếu đã cấu hình</string>
-                    </property>
                     <property name="toolTip">
-                     <string>Bỏ tick để tạm dùng lại Stream URL (mainstream) mà không cần xoá Substream URL đã lưu.</string>
+                     <string>Uncheck to temporarily fall back to the Stream URL (mainstream) without deleting the saved Substream URL.</string>
+                    </property>
+                    <property name="text">
+                     <string>Prefer the substream</string>
                     </property>
                     <property name="checked">
                      <bool>true</bool>
@@ -320,11 +302,11 @@
                   </item>
                   <item row="5" column="1">
                    <widget class="QLineEdit" name="edit_mac_address">
+                    <property name="toolTip">
+                     <string>This is the actual camera_id sent to the web server (matches the camera already registered there by MAC, DIFFERENT from the internal &quot;Camera ID&quot; above) - auto-filled when scanning ARP (IP camera), or entered manually if scanning isn't possible / USB camera. Leave empty = events/attendance from this camera won't be sent to the web.</string>
+                    </property>
                     <property name="placeholderText">
                      <string>AA:BB:CC:DD:EE:FF</string>
-                    </property>
-                    <property name="toolTip">
-                     <string>Đây mới là camera_id thật sự gửi lên web server (khớp với camera đã đăng ký sẵn bên đó theo MAC, KHÁC "Camera ID" nội bộ ở trên) - tự điền khi quét ARP (camera IP), hoặc nhập tay nếu không quét được/camera USB. Để trống = không gửi sự kiện/chấm công của camera này lên web.</string>
                     </property>
                    </widget>
                   </item>
@@ -346,9 +328,6 @@
                   <property name="verticalSpacing">
                    <number>8</number>
                   </property>
-                  <property name="contentsMargins" stdset="0">
-                   <number>12</number>
-                  </property>
                   <item row="0" column="0">
                    <widget class="QLabel" name="lbl_resolution">
                     <property name="text">
@@ -359,7 +338,7 @@
                   <item row="0" column="1">
                    <widget class="QComboBox" name="combo_resolution">
                     <property name="toolTip">
-                     <string>Giới hạn độ phân giải HIỂN THỊ tối đa (không đổi độ phân giải AI dùng để detect). Camera nguồn có resolution cao hơn mức chọn sẽ được downscale trước khi hiển thị để đỡ lag - chọn 4K = không giới hạn. Với camera USB, còn yêu cầu camera capture đúng resolution này (cần Stop/Start lại camera mới áp dụng); IP/RTSP thì camera server quyết định, không set được.</string>
+                     <string>Limits the maximum DISPLAY resolution (does not change the resolution AI uses for detection). If the source camera's resolution is higher than the selected value, it will be downscaled before display to reduce lag - choose 4K = no limit. For USB cameras, this also requests that the camera capture at this exact resolution (requires Stop/Start to take effect); for IP/RTSP, the camera server decides this and it can't be set here.</string>
                     </property>
                     <item>
                      <property name="text">
@@ -393,7 +372,7 @@
                   <item row="1" column="1">
                    <widget class="QSpinBox" name="spin_fps">
                     <property name="toolTip">
-                     <string>Giới hạn tốc độ HIỂN THỊ (số khung hình/giây gửi lên xem) - không giới hạn tốc độ AI xử lý (xem "AI FPS Limit" ở tab AI). Có hiệu lực ngay, không cần Stop/Start lại.</string>
+                     <string>Limits the DISPLAY frame rate (frames per second sent for viewing) - does not limit the AI processing rate (see &quot;AI FPS Limit&quot; in the AI tab). Takes effect immediately, no need to Stop/Start.</string>
                     </property>
                     <property name="minimum">
                      <number>1</number>
@@ -438,11 +417,11 @@
                    </item>
                    <item>
                     <widget class="QPushButton" name="btn_toggle_preview">
-                     <property name="checkable">
-                      <bool>true</bool>
-                     </property>
                      <property name="text">
                       <string>▶  Open Preview</string>
+                     </property>
+                     <property name="checkable">
+                      <bool>true</bool>
                      </property>
                     </widget>
                    </item>
@@ -480,11 +459,11 @@
                         <height>480</height>
                        </size>
                       </property>
-                      <property name="alignment">
-                       <set>Qt::AlignCenter</set>
-                      </property>
                       <property name="text">
                        <string>No Preview</string>
+                      </property>
+                      <property name="alignment">
+                       <set>Qt::AlignCenter</set>
                       </property>
                      </widget>
                     </item>
@@ -495,11 +474,11 @@
                </item>
                <item>
                 <widget class="QLabel" name="lbl_ai_summary">
-                 <property name="text">
-                  <string/>
-                 </property>
                  <property name="styleSheet">
                   <string>font-weight:600;</string>
+                 </property>
+                 <property name="text">
+                  <string/>
                  </property>
                  <property name="wordWrap">
                   <bool>true</bool>
@@ -574,9 +553,6 @@
            <property name="spacing">
             <number>12</number>
            </property>
-           <property name="contentsMargins" stdset="0">
-            <number>12</number>
-           </property>
            <item>
             <widget class="QScrollArea" name="scroll_ai">
              <property name="frameShape">
@@ -590,16 +566,13 @@
                <rect>
                 <x>0</x>
                 <y>0</y>
-                <width>803</width>
-                <height>700</height>
+                <width>510</width>
+                <height>467</height>
                </rect>
               </property>
               <layout class="QVBoxLayout" name="layout_ai_scroll">
                <property name="spacing">
                 <number>12</number>
-               </property>
-               <property name="contentsMargins" stdset="0">
-                <number>0</number>
                </property>
                <item>
                 <widget class="QGroupBox" name="group_ai_enable">
@@ -612,9 +585,6 @@
                   </property>
                   <property name="verticalSpacing">
                    <number>8</number>
-                  </property>
-                  <property name="contentsMargins" stdset="0">
-                   <number>12</number>
                   </property>
                   <item row="0" column="0">
                    <widget class="QLabel" name="lbl_enable_ai">
@@ -660,21 +630,21 @@
                   <item row="2" column="1">
                    <widget class="QComboBox" name="combo_inference_quality">
                     <property name="toolTip">
-                     <string>Kích thước ảnh đưa vào model AI (pose/PPE/fire/fall) - không ảnh hưởng resolution hiển thị. Fast/Balanced giúp mượt hơn nhiều khi chạy AI trên nhiều camera cùng lúc, đổi lại độ chính xác giảm nhẹ với người/vật nhỏ hoặc ở xa.</string>
+                     <string>Image size fed into the AI model (pose/PPE/fire/fall) - does not affect the display resolution. Fast/Balanced run much smoother when AI runs on multiple cameras at once, at the cost of slightly lower accuracy for small or distant people/objects.</string>
                     </property>
                     <item>
                      <property name="text">
-                      <string>Fast (320px - nhanh nhất)</string>
+                      <string>Fast (320px)</string>
                      </property>
                     </item>
                     <item>
                      <property name="text">
-                      <string>Balanced (480px - khuyến nghị)</string>
+                      <string>Balanced (480px)</string>
                      </property>
                     </item>
                     <item>
                      <property name="text">
-                      <string>Accurate (640px - chính xác nhất)</string>
+                      <string>Accurate (640px)</string>
                      </property>
                     </item>
                    </widget>
@@ -685,54 +655,51 @@
                <item>
                 <widget class="QGroupBox" name="group_ai_features">
                  <property name="title">
-                  <string>AI Features (có thể chọn nhiều)</string>
+                  <string>AI Features</string>
                  </property>
                  <layout class="QVBoxLayout" name="layout_ai_features">
                   <property name="spacing">
                    <number>6</number>
                   </property>
-                  <property name="contentsMargins" stdset="0">
-                   <number>12</number>
-                  </property>
                   <item>
                    <widget class="QCheckBox" name="check_enable_counting">
                     <property name="text">
-                     <string>Đếm người vào/ra  (cần vẽ Counting Line)</string>
+                     <string>Count people in/out  (requires drawing a Counting Line)</string>
                     </property>
                    </widget>
                   </item>
                   <item>
                    <widget class="QCheckBox" name="check_enable_occupancy">
                     <property name="text">
-                     <string>Giám sát số người hiện tại - Occupancy  (nên có ROI)</string>
+                     <string>Monitor current occupancy  (ROI recommended)</string>
                     </property>
                    </widget>
                   </item>
                   <item>
                    <widget class="QCheckBox" name="check_enable_ppe">
                     <property name="text">
-                     <string>Giám sát đồ bảo hộ - PPE  (cần vẽ ROI)</string>
+                     <string>PPE monitoring  (requires drawing an ROI)</string>
                     </property>
                    </widget>
                   </item>
                   <item>
                    <widget class="QCheckBox" name="check_enable_fire">
                     <property name="text">
-                     <string>Phát hiện cháy - Fire Detection</string>
+                     <string>Fire Detection</string>
                     </property>
                    </widget>
                   </item>
                   <item>
                    <widget class="QCheckBox" name="check_enable_fall">
                     <property name="text">
-                     <string>Phát hiện té ngã - Fall Detection</string>
+                     <string>Fall Detection</string>
                     </property>
                    </widget>
                   </item>
                   <item>
                    <widget class="QCheckBox" name="check_enable_face_recognition">
                     <property name="text">
-                     <string>Nhận diện gương mặt - cảnh báo người lạ / thông báo người quen</string>
+                     <string>Face recognition - alert on strangers / recognize known people</string>
                     </property>
                    </widget>
                   </item>
@@ -748,7 +715,7 @@
                     <item>
                      <widget class="QLabel" name="lbl_known_faces_status">
                       <property name="text">
-                       <string>Known faces: chưa tải</string>
+                       <string>Known faces: not loaded</string>
                       </property>
                      </widget>
                     </item>
@@ -766,19 +733,6 @@
                      </spacer>
                     </item>
                    </layout>
-                  </item>
-                  <item>
-                   <widget class="QLabel" name="lbl_ai_feature_hint">
-                    <property name="text">
-                     <string>Đếm vào/ra và Occupancy/PPE cần vẽ Counting Line / ROI ở tab ROI (nút "Open ROI Editor") thì mới có tác dụng.</string>
-                    </property>
-                    <property name="wordWrap">
-                     <bool>true</bool>
-                    </property>
-                    <property name="styleSheet">
-                     <string>color: #888888;</string>
-                    </property>
-                   </widget>
                   </item>
                  </layout>
                 </widget>
@@ -834,9 +788,6 @@
            <property name="spacing">
             <number>12</number>
            </property>
-           <property name="contentsMargins" stdset="0">
-            <number>12</number>
-           </property>
            <item>
             <widget class="QFrame" name="frame_roi_preview">
              <property name="frameShape">
@@ -846,7 +797,7 @@
               <item>
                <widget class="QLabel" name="lbl_roi_preview_placeholder">
                 <property name="text">
-                 <string>Bấm "Open ROI Editor…" để vẽ trực tiếp ROI/Counting Line lên hình camera</string>
+                 <string>Click &quot;Open ROI Editor…&quot; to draw ROI/Counting Line directly on the camera feed</string>
                 </property>
                 <property name="wordWrap">
                  <bool>true</bool>
@@ -865,9 +816,6 @@
               <property name="spacing">
                <number>8</number>
               </property>
-              <property name="contentsMargins" stdset="0">
-               <number>8</number>
-              </property>
               <item>
                <widget class="QPushButton" name="btn_open_roi_editor">
                 <property name="text">
@@ -877,14 +825,14 @@
               </item>
               <item>
                <widget class="QListWidget" name="list_roi">
-                <property name="alternatingRowColors">
-                 <bool>true</bool>
-                </property>
                 <property name="enabled">
                  <bool>false</bool>
                 </property>
                 <property name="toolTip">
-                 <string>Danh sách chỉ để xem - vẽ/sửa/xoá qua ROI Editor</string>
+                 <string>View-only list - draw/edit/delete via the ROI Editor</string>
+                </property>
+                <property name="alternatingRowColors">
+                 <bool>true</bool>
                 </property>
                </widget>
               </item>
@@ -894,19 +842,16 @@
            <item>
             <widget class="QGroupBox" name="group_counting_line">
              <property name="title">
-              <string>Counting Line (đếm người vào/ra)</string>
+              <string>Counting Line (count people in/out)</string>
              </property>
              <layout class="QVBoxLayout" name="layout_counting_line_group">
               <property name="spacing">
                <number>8</number>
               </property>
-              <property name="contentsMargins" stdset="0">
-               <number>8</number>
-              </property>
               <item>
                <widget class="QLabel" name="lbl_counting_line_status">
                 <property name="text">
-                 <string>Chưa đặt</string>
+                 <string>Not set</string>
                 </property>
                </widget>
               </item>
@@ -934,9 +879,6 @@
           </attribute>
           <layout class="QVBoxLayout" name="layout_tab_trigger">
            <property name="spacing">
-            <number>12</number>
-           </property>
-           <property name="contentsMargins" stdset="0">
             <number>12</number>
            </property>
            <item>
@@ -980,9 +922,6 @@
              </property>
              <layout class="QVBoxLayout" name="layout_trigger_rules_group">
               <property name="spacing">
-               <number>8</number>
-              </property>
-              <property name="contentsMargins" stdset="0">
                <number>8</number>
               </property>
               <item>
@@ -1069,9 +1008,6 @@
            <property name="spacing">
             <number>12</number>
            </property>
-           <property name="contentsMargins" stdset="0">
-            <number>12</number>
-           </property>
            <item>
             <widget class="QGroupBox" name="group_recording">
              <property name="title">
@@ -1086,9 +1022,6 @@
               </property>
               <property name="verticalSpacing">
                <number>10</number>
-              </property>
-              <property name="contentsMargins" stdset="0">
-               <number>12</number>
               </property>
               <item row="0" column="0">
                <widget class="QLabel" name="lbl_enable_recording">
@@ -1233,9 +1166,6 @@
            <property name="spacing">
             <number>12</number>
            </property>
-           <property name="contentsMargins" stdset="0">
-            <number>12</number>
-           </property>
            <item>
             <widget class="QGroupBox" name="group_overlay">
              <property name="title">
@@ -1250,9 +1180,6 @@
               </property>
               <property name="verticalSpacing">
                <number>10</number>
-              </property>
-              <property name="contentsMargins" stdset="0">
-               <number>12</number>
               </property>
               <item row="0" column="0">
                <widget class="QLabel" name="lbl_show_bbox">
@@ -1374,9 +1301,6 @@
            <property name="spacing">
             <number>12</number>
            </property>
-           <property name="contentsMargins" stdset="0">
-            <number>12</number>
-           </property>
            <item>
             <widget class="QScrollArea" name="scroll_advanced">
              <property name="frameShape">
@@ -1390,16 +1314,13 @@
                <rect>
                 <x>0</x>
                 <y>0</y>
-                <width>803</width>
-                <height>700</height>
+                <width>340</width>
+                <height>280</height>
                </rect>
               </property>
               <layout class="QVBoxLayout" name="layout_advanced_scroll">
                <property name="spacing">
                 <number>12</number>
-               </property>
-               <property name="contentsMargins" stdset="0">
-                <number>0</number>
                </property>
                <item>
                 <widget class="QGroupBox" name="group_adv_pipeline">
@@ -1415,9 +1336,6 @@
                   </property>
                   <property name="verticalSpacing">
                    <number>8</number>
-                  </property>
-                  <property name="contentsMargins" stdset="0">
-                   <number>12</number>
                   </property>
                   <item row="0" column="0">
                    <widget class="QLabel" name="lbl_frame_queue_size">
@@ -1476,9 +1394,6 @@
                   </property>
                   <property name="verticalSpacing">
                    <number>8</number>
-                  </property>
-                  <property name="contentsMargins" stdset="0">
-                   <number>12</number>
                   </property>
                   <item row="0" column="0">
                    <widget class="QLabel" name="lbl_decoder_backend">
@@ -1588,9 +1503,6 @@
          <layout class="QHBoxLayout" name="layout_action_bar">
           <property name="spacing">
            <number>8</number>
-          </property>
-          <property name="contentsMargins" stdset="0">
-           <number>6</number>
           </property>
           <item>
            <widget class="QPushButton" name="btn_save">

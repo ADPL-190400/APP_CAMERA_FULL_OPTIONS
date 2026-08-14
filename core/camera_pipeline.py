@@ -38,6 +38,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage
 
 from core.ai_model_manager import AIModelManager
+from core.ai_settings import AISettings
 from core.deep_sort_pytorch.deep_sort import DeepSort
 from core.deep_sort_pytorch.utils.parser import get_config
 from core.event_dedup import PresenceDedup
@@ -52,6 +53,7 @@ from core.models.camera_device import (
 )
 from core.models.event_record import EVENT_KIND_LABELS, EVENT_KIND_INCIDENT_TYPE_ID, EventKind
 from core.path_manager import BASE_DIR
+from ui.ui_menu.i18n import tr
 from scr import Web_API
 
 _DEEPSORT_YAML = os.path.join(BASE_DIR, "core", "deep_sort_pytorch", "configs", "deep_sort.yaml")
@@ -60,20 +62,27 @@ _REID_CKPT = os.path.join(
 )
 
 # Fall detection - port nguyên tham số từ Fall_detection.py của MIRAI.
-_FALL_BUFFER_LEN = 10             # làm mượt trên 10 frame AI (~0.3-0.5s ở ai_fps_limit gốc)
+# _FALL_BUFFER_LEN (cửa sổ làm mượt) và ngưỡng confidence của model
+# fall_detection_new.pt giờ đọc động từ AISettings (chỉnh được qua UI - xem
+# ui/dialogs/ai_settings_dialog.py) thay vì hằng số cố định ở đây.
 _FALL_POSE_CONF_THRESHOLD = 0.3   # keypoint có conf thấp hơn -> bỏ qua người này (pose không đủ tin cậy)
-_FALL_CONF_THRESHOLD = 0.7        # confidence model fall_detection.pt phải vượt mới coi là "đang ngã"
 _FALL_REQUIRED_KEYPOINTS = (5, 6, 11, 12, 15, 16)  # vai, hông, mắt cá (COCO-17) - phải thấy đủ mới xét ngã
 _FALL_CROP_PADDING = 30
 
 # Face recognition - port từ Face_detection.py của MIRAI.
 _FACE_DET_SCORE_THRESHOLD = 0.5   # ngưỡng chất lượng detection, giống mọi model YOLO khác ở đây
 _STRANGER_STREAK_REQUIRED = 3      # cần 3 lượt AI liên tiếp thấy "Stranger" mới báo động (tránh nhiễu 1 frame)
+_FACE_MAX_PER_FRAME = 10           # đám đông > 10 mặt/frame -> chỉ nhận diện 10 mặt gần/to nhất, tránh cả frame bị kéo chậm vì nhận diện hết
 
 # Event Log: cùng ngưỡng "đợt vi phạm mới" với Event Feed/System Alarms
 # (dashboard_page.py/liveview_page.py) - tránh lưu ảnh spam liên tục trong
 # lúc 1 điều kiện vẫn còn đúng.
 _EVENT_LOG_GRACE_SEC = 5.0
+
+# Bước chờ giữa các lần thử reconnect (xem _reconnect) - đủ nhỏ để stop()
+# luôn có hiệu lực trong vòng thời gian DeviceManager.stop_device() chờ
+# (wait(2000)), đủ lớn để không busy-loop tốn CPU.
+_RECONNECT_POLL_MS = 200
 
 
 class CameraPipeline(QThread):
@@ -105,7 +114,7 @@ class CameraPipeline(QThread):
         preview_max_width: int = 0,
         capture_resolution: tuple[int, int] | None = None,
         display_fps_limit: int = 30,
-        inference_quality: str = "Balanced (480px - khuyến nghị)",
+        inference_quality: str = "Balanced (480px)",
         parent=None,
     ):
         super().__init__(parent)
@@ -158,6 +167,7 @@ class CameraPipeline(QThread):
         self._last_ppe_violation = False
         self._last_fire_alert = False
         self._last_fall_alert = False
+        self._last_fall_bbox: tuple[int, int, int, int] | None = None
         self._last_stranger_alert = False
         self._last_face_boxes: list[tuple[int, int, int, int, str, bool]] = []  # x1,y1,x2,y2,name,is_stranger
 
@@ -201,7 +211,7 @@ class CameraPipeline(QThread):
         show_tracking_id: bool,
         preview_max_width: int = 0,
         display_fps_limit: int = 30,
-        inference_quality: str = "Balanced (480px - khuyến nghị)",
+        inference_quality: str = "Balanced (480px)",
     ) -> None:
         """Cập nhật cấu hình AI/ROI/Line/Overlay của pipeline NGAY LẬP TỨC, kể
         cả khi đang chạy - gọi bởi DeviceManager mỗi khi Save/Apply (hoặc ROI
@@ -277,7 +287,7 @@ class CameraPipeline(QThread):
         # đổi - tránh mang state cũ (ví dụ streak dở dang từ trước khi tắt
         # PPE) áp dụng nhầm cho cấu hình mới.
         self._ppe_violation_streak = 0
-        self._fall_buffer: deque[bool] = deque(maxlen=_FALL_BUFFER_LEN)
+        self._fall_buffer: deque[bool] = deque(maxlen=AISettings.instance().fall_confirm_window)
         self._fall_confirmed = False
         self._stranger_streak = 0
 
@@ -313,7 +323,7 @@ class CameraPipeline(QThread):
     def run(self) -> None:
         cap = self._open_capture()
         if cap is None:
-            self.error_occurred.emit(self._device_id, f"Không thể mở nguồn video: {self._source}")
+            self.error_occurred.emit(self._device_id, tr("Could not open video source: {source}").format(source=self._source))
             return
 
         try:
@@ -393,9 +403,10 @@ class CameraPipeline(QThread):
                     ppe_violation = self._check_ppe(frame, boxes)
 
         fall_alert = False
+        fall_bbox = None
         if need_pose:
             pose_result = AIModelManager.instance().detect_bodies(frame, imgsz=self._inference_imgsz)
-            fall_alert = self._check_fall(frame, pose_result)
+            fall_alert, fall_bbox = self._check_fall(frame, pose_result)
 
         self._capture_events(frame, ppe_violation, fire_alert, fall_alert, stranger_alert)
 
@@ -404,6 +415,7 @@ class CameraPipeline(QThread):
             ppe_violation=ppe_violation,
             fire_alert=fire_alert,
             fall_alert=fall_alert,
+            fall_bbox=fall_bbox,
             known_faces=known_faces,
             stranger_alert=stranger_alert,
         )
@@ -441,7 +453,7 @@ class CameraPipeline(QThread):
         thêm ở đây."""
         if not self._web_camera_id:
             return
-        details = f"{EVENT_KIND_LABELS[kind]} tại {self._device_name}"
+        details = f"{EVENT_KIND_LABELS[kind]} at {self._device_name}"
         Web_API.send_mobile_incident(
             evidence_frame, details, EVENT_KIND_INCIDENT_TYPE_ID[kind], self._web_camera_id
         )
@@ -476,7 +488,7 @@ class CameraPipeline(QThread):
         Trả về (list tên người quen thấy trong frame này, có báo động người
         lạ hay không - đã debounce qua _stranger_streak giống PPE, tránh
         báo nhầm vì 1 frame nhiễu/góc mặt xấu)."""
-        faces = AIModelManager.instance().detect_faces(frame)
+        faces = AIModelManager.instance().detect_faces(frame, max_num=_FACE_MAX_PER_FRAME)
         store = KnownFacesStore.instance()
 
         known_faces: list[str] = []
@@ -500,15 +512,25 @@ class CameraPipeline(QThread):
         stranger_alert = self._stranger_streak >= _STRANGER_STREAK_REQUIRED
         return known_faces, stranger_alert
 
-    def _check_fall(self, frame, result) -> bool:
+    def _check_fall(self, frame, result) -> tuple[bool, tuple[int, int, int, int] | None]:
         """Fall detection port từ Fall_detection.py: với mỗi người có đủ 6
         keypoint tin cậy (vai/hông/mắt cá, COCO-17) - dùng RAW detection
         giống PPE, không qua track - crop quanh bbox (+30px) rồi chạy
-        fall_detection.pt. Alert cuối cùng cần 2 tầng: phát hiện tức thời
-        (frame này) VÀ majority-vote xác nhận từ 10 frame AI trước đó."""
+        fall_detection.pt (ngưỡng conf = AISettings.fall_conf, chỉnh được
+        qua UI). Alert cuối cùng cần 2 tầng: phát hiện tức thời (frame này)
+        VÀ majority-vote xác nhận từ AISettings.fall_confirm_window frame AI
+        gần nhất (cần ít nhất fall_confirm_min_count lượt "đang ngã").
+
+        Trả về (fall_alert, bbox) - bbox (toạ độ NGƯỜI, chưa padding) của
+        người đang ngã CHỈ khi fall_alert đã được xác nhận (2 tầng ở trên),
+        None nếu chưa - CameraPipeline._draw_overlay chỉ vẽ khung fall khi
+        có bbox, tức không vẽ khung dựa trên 1 lượt phát hiện đơn lẻ chưa
+        qua xác nhận."""
+        settings = AISettings.instance()
         boxes = result.boxes
         keypoints = result.keypoints
         is_falling = False
+        candidate_bbox: tuple[int, int, int, int] | None = None
 
         if boxes is not None and keypoints is not None and len(boxes) > 0:
             h, w = frame.shape[:2]
@@ -517,22 +539,30 @@ class CameraPipeline(QThread):
                 if any(kpt_conf[idx] < _FALL_POSE_CONF_THRESHOLD for idx in _FALL_REQUIRED_KEYPOINTS):
                     continue
 
-                x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy()
-                x1 = max(0, int(x1) - _FALL_CROP_PADDING)
-                y1 = max(0, int(y1) - _FALL_CROP_PADDING)
-                x2 = min(w, int(x2) + _FALL_CROP_PADDING)
-                y2 = min(h, int(y2) + _FALL_CROP_PADDING)
-                crop = frame[y1:y2, x1:x2]
+                px1, py1, px2, py2 = boxes.xyxy[i].cpu().numpy()
+                cx1 = max(0, int(px1) - _FALL_CROP_PADDING)
+                cy1 = max(0, int(py1) - _FALL_CROP_PADDING)
+                cx2 = min(w, int(px2) + _FALL_CROP_PADDING)
+                cy2 = min(h, int(py2) + _FALL_CROP_PADDING)
+                crop = frame[cy1:cy2, cx1:cx2]
                 if crop.size == 0:
                     continue
 
-                if AIModelManager.instance().check_fall(crop, imgsz=self._inference_imgsz) > _FALL_CONF_THRESHOLD:
+                if AIModelManager.instance().check_fall(crop, imgsz=self._inference_imgsz) > 0.0:
                     is_falling = True
+                    candidate_bbox = (int(px1), int(py1), int(px2), int(py2))
+
+        # Cửa sổ làm mượt (deque) đổi kích thước ngay khi người dùng chỉnh
+        # AISettings.fall_confirm_window qua UI - tạo lại deque MỚI (giữ lại
+        # tối đa maxlen mục cuối cùng, deque() tự cắt bớt phần dư) thay vì
+        # đợi restart pipeline.
+        if self._fall_buffer.maxlen != settings.fall_confirm_window:
+            self._fall_buffer = deque(self._fall_buffer, maxlen=settings.fall_confirm_window)
 
         fall_alert = is_falling and self._fall_confirmed
         self._fall_buffer.append(is_falling)
-        self._fall_confirmed = sum(self._fall_buffer) >= (_FALL_BUFFER_LEN // 2)
-        return fall_alert
+        self._fall_confirmed = sum(self._fall_buffer) >= settings.fall_confirm_min_count
+        return fall_alert, (candidate_bbox if fall_alert else None)
 
     def _check_ppe(self, frame, boxes) -> bool:
         """PPE zone-check: đếm SỐ NGƯỜI có tâm bbox ĐẦU (detect_humans() dùng
@@ -667,6 +697,18 @@ class CameraPipeline(QThread):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA,
             )
 
+        # Khung fall (đỏ) CHỈ vẽ khi self._last_fall_bbox có giá trị -
+        # _check_fall() chỉ trả bbox khi fall_alert đã qua đủ 2 tầng xác
+        # nhận (majority-vote AISettings.fall_confirm_window/fall_confirm_min_count),
+        # KHÔNG vẽ dựa trên 1 lượt phát hiện đơn lẻ chưa xác nhận.
+        if self._last_fall_bbox is not None:
+            fx1, fy1, fx2, fy2 = self._last_fall_bbox
+            cv2.rectangle(frame, (fx1, fy1), (fx2, fy2), (0, 0, 255), 3)
+            cv2.putText(
+                frame, "FALL", (fx1, max(15, fy1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA,
+            )
+
         alerts = []
         if self._last_ppe_violation:
             alerts.append("PPE VIOLATION")
@@ -688,6 +730,7 @@ class CameraPipeline(QThread):
         ppe_violation: bool = False,
         fire_alert: bool = False,
         fall_alert: bool = False,
+        fall_bbox: tuple[int, int, int, int] | None = None,
         known_faces: list[str] | None = None,
         stranger_alert: bool = False,
     ) -> None:
@@ -697,6 +740,7 @@ class CameraPipeline(QThread):
         self._last_ppe_violation = ppe_violation
         self._last_fire_alert = fire_alert
         self._last_fall_alert = fall_alert
+        self._last_fall_bbox = fall_bbox
         self._last_stranger_alert = stranger_alert
         self.ai_result_ready.emit(
             self._device_id,
@@ -738,7 +782,17 @@ class CameraPipeline(QThread):
         return [x1 + w / 2, y1 + h / 2, w, h]
 
     def _open_capture(self) -> cv2.VideoCapture | None:
-        cap = cv2.VideoCapture(self._source)
+        # Webcam USB (self._source là int) -> ép dùng backend DirectShow
+        # (CAP_DSHOW) thay vì để OpenCV tự dò backend mặc định - trên
+        # Windows, backend mặc định (MSMF) khởi tạo RẤT chậm với nhiều webcam
+        # (có thể mất 5-10s+ mỗi lần mở), DSHOW mở gần như ngay lập tức (cùng
+        # bug "mở camera rất lâu" gặp ở pages/face_attendance_page.py). IP/
+        # RTSP (self._source là str URL) không dùng được CAP_DSHOW (chỉ dành
+        # cho thiết bị capture cục bộ) nên giữ nguyên backend mặc định.
+        if isinstance(self._source, int):
+            cap = cv2.VideoCapture(self._source, cv2.CAP_DSHOW)
+        else:
+            cap = cv2.VideoCapture(self._source)
         if not cap.isOpened():
             cap.release()
             return None
@@ -756,9 +810,21 @@ class CameraPipeline(QThread):
     def _reconnect(self) -> cv2.VideoCapture | None:
         """Mất kết nối giữa chừng (rớt mạng, camera reboot...) -> thử mở lại
         định kỳ theo device.advanced.reconnect_timeout, tới khi thành công
-        hoặc bị stop()."""
+        hoặc bị stop().
+
+        Chờ theo từng bước nhỏ (_RECONNECT_POLL_MS) thay vì 1 lần msleep dài
+        bằng cả reconnect_timeout_ms (có thể tới hàng chục giây) - msleep
+        không thể bị ngắt giữa chừng, nên nếu stop() được gọi đúng lúc đang
+        msleep dài, DeviceManager.stop_device() chờ wait(2000) hết hạn rồi bỏ
+        đi trong khi thread C++ vẫn còn sống -> Python GC huỷ luôn object
+        CameraPipeline -> Qt abort process với "QThread: Destroyed while
+        thread is still running" (bug đã gặp: crash khi Logout lúc có camera
+        đang ở trạng thái chờ reconnect)."""
         while self._running:
-            self.msleep(self._reconnect_timeout_ms)
+            waited_ms = 0
+            while waited_ms < self._reconnect_timeout_ms and self._running:
+                self.msleep(min(_RECONNECT_POLL_MS, self._reconnect_timeout_ms - waited_ms))
+                waited_ms += _RECONNECT_POLL_MS
             if not self._running:
                 return None
             cap = self._open_capture()

@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QImage
 
 from ui.dialogs.face_scan_view import FaceScanView, RingState
+from ui.ui_menu.i18n import tr
 
 # Ngưỡng |yaw| coi là "nhìn thẳng" / "đã quay đủ" 1 chiều - yaw ước lượng từ
 # 5 điểm kps trong FaceCaptureWorker._estimate_yaw (~0 = thẳng). CHIỀU dấu
@@ -35,10 +36,17 @@ _FACE_RATIO_MAX = 0.55
 
 _FLASH_MS = 500  # thời gian giữ ring xanh SUCCESS trước khi chuyển bước/kết thúc
 
+# Số mẫu chụp liên tiếp mỗi bước (thay vì 1 mẫu/bước như trước) - lấy trung
+# bình NHIỀU mẫu CÙNG 1 góc mặt giảm nhiễu do 1 frame chụp trúng lúc mờ/chớp
+# mắt, KHÔNG trộn giữa các góc khác nhau (đó là core/known_faces_store.py
+# xử lý riêng - xem EnrollWorker._save_local_embeddings). ~3 mẫu/bước x 3
+# bước ~ 9-10 mẫu/người.
+_SAMPLES_PER_STEP = 3
+
 _STEPS = [
-    ("straight", "Nhìn thẳng vào camera", lambda yaw: abs(yaw) < _YAW_STRAIGHT_MAX),
-    ("left", "Xoay đầu sang TRÁI", lambda yaw: yaw > _YAW_TURN_MIN),
-    ("right", "Xoay đầu sang PHẢI", lambda yaw: yaw < -_YAW_TURN_MIN),
+    ("straight", "Look straight at the camera", lambda yaw: abs(yaw) < _YAW_STRAIGHT_MAX),
+    ("left", "Turn your head LEFT", lambda yaw: yaw > _YAW_TURN_MIN),
+    ("right", "Turn your head RIGHT", lambda yaw: yaw < -_YAW_TURN_MIN),
 ]
 
 
@@ -51,13 +59,20 @@ class FaceCaptureWizardDialog(QtWidgets.QDialog):
         self._capturing = False  # True trong khoảng flash xanh giữa 2 bước - _on_state bỏ qua tick
         self._latest_state: Optional[dict] = None
 
-        self.embeddings: list = []
+        self.embeddings: list = []  # TẤT CẢ mẫu đã chụp (mọi bước) - dùng tính avg gửi backend (EnrollWorker), giữ đúng hành vi cũ
+        # mẫu đã chụp CỦA BƯỚC ĐANG LÀM - gộp vào self.embeddings +
+        # self.pose_samples[key] khi đủ _SAMPLES_PER_STEP (xem _collect_sample).
+        self._step_samples: list = []
+        # key bước ("straight"/"left"/"right") -> list mẫu riêng của bước đó -
+        # dùng lưu cục bộ nhiều vector theo góc (EnrollWorker._save_local_embeddings),
+        # KHÔNG trộn giữa các góc như self.embeddings (xem module docstring).
+        self.pose_samples: dict[str, list] = {}
         # Frame + bbox của bước "straight" - dùng làm avatar (EnrollWorker),
         # không ảnh hưởng embedding (embedding tính từ cả 3 bước).
         self.avatar_frame = None
         self.avatar_bbox: Optional[tuple[int, int, int, int]] = None
 
-        self.setWindowTitle("Đăng ký khuôn mặt")
+        self.setWindowTitle(tr("Face Registration"))
         self.setMinimumSize(760, 960)
         self.setStyleSheet("QDialog { background-color: #0d0f14; }")
         self._build_ui()
@@ -103,12 +118,12 @@ class FaceCaptureWizardDialog(QtWidgets.QDialog):
                 f"QPushButton:hover {{ color: {hover}; border-color: {hover}; }}"
             )
 
-        self.btn_manual = QtWidgets.QPushButton("📸  Chụp thủ công")
+        self.btn_manual = QtWidgets.QPushButton(tr("📸  Manual Capture"))
         self.btn_manual.setStyleSheet(_secondary_style("#00d4ff"))
         self.btn_manual.clicked.connect(self._on_manual_capture)
         btn_row.addWidget(self.btn_manual)
 
-        self.btn_cancel = QtWidgets.QPushButton("Huỷ")
+        self.btn_cancel = QtWidgets.QPushButton(tr("Cancel"))
         self.btn_cancel.setStyleSheet(_secondary_style("#ff4444"))
         self.btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(self.btn_cancel)
@@ -117,9 +132,12 @@ class FaceCaptureWizardDialog(QtWidgets.QDialog):
 
     def _update_step_ui(self) -> None:
         self._hold_ticks = 0
+        self._step_samples = []
         _key, text, _check = _STEPS[self._step_index]
-        self.lbl_instruction.setText(f"Bước {self._step_index + 1}/{len(_STEPS)}: {text}")
-        self.lbl_hint.setText("Đưa khuôn mặt vào khung hình")
+        self.lbl_instruction.setText(
+            tr("Step {n}/{total}: {text}").format(n=self._step_index + 1, total=len(_STEPS), text=tr(text))
+        )
+        self.lbl_hint.setText(tr("Position your face in the frame"))
         self.lbl_dots.setText(" ".join(
             "●" if i < self._step_index else "○" for i in range(len(_STEPS))
         ))
@@ -136,55 +154,73 @@ class FaceCaptureWizardDialog(QtWidgets.QDialog):
 
         if state is None:
             self._hold_ticks = 0
-            self.lbl_hint.setText("Đưa khuôn mặt vào khung hình")
+            self.lbl_hint.setText(tr("Position your face in the frame"))
             self.scan_view.set_state(RingState.PROGRESS, 0.0)
             return
 
         face_ratio = state.get("face_ratio", 0.0)
         if face_ratio < _FACE_RATIO_MIN:
             self._hold_ticks = 0
-            self.lbl_hint.setText("Lại gần camera hơn")
+            self.lbl_hint.setText(tr("Move closer to the camera"))
             self.scan_view.set_state(RingState.PROGRESS, 0.0)
             return
         if face_ratio > _FACE_RATIO_MAX:
             self._hold_ticks = 0
-            self.lbl_hint.setText("Lùi lại một chút")
+            self.lbl_hint.setText(tr("Step back a little"))
             self.scan_view.set_state(RingState.PROGRESS, 0.0)
             return
 
         _key, _text, pose_ok = _STEPS[self._step_index]
         if pose_ok(state.get("yaw", 0.0)):
             self._hold_ticks += 1
-            self.lbl_hint.setText("Giữ yên...")
+            self.lbl_hint.setText(
+                tr("Hold still... ({n}/{total})").format(n=len(self._step_samples), total=_SAMPLES_PER_STEP)
+                if self._step_samples else tr("Hold still...")
+            )
         else:
+            # KHÔNG xoá self._step_samples đã tích luỹ được ở đây - lỡ giữ
+            # đúng tư thế 1-2 mẫu rồi lệch thoáng qua (vd chớp mắt/quay đầu
+            # nhẹ) không nên mất tiến độ, chỉ cần giữ lại đủ tư thế lần nữa
+            # là tiếp tục chụp cho đủ _SAMPLES_PER_STEP (xem _collect_sample).
             self._hold_ticks = 0
-            self.lbl_hint.setText("Chỉnh đúng tư thế theo hướng dẫn phía trên")
+            self.lbl_hint.setText(tr("Adjust your pose according to the instructions above"))
 
         self.scan_view.set_state(RingState.PROGRESS, min(1.0, self._hold_ticks / _HOLD_TICKS_REQUIRED))
 
         if self._hold_ticks >= _HOLD_TICKS_REQUIRED:
-            self._capture(state)
+            self._collect_sample(state)
 
     def _on_manual_capture(self) -> None:
         if self._capturing:
             return
         if self._latest_state is None:
-            self.lbl_hint.setText("Chưa phát hiện khuôn mặt, thử lại.")
+            self.lbl_hint.setText(tr("No face detected, try again."))
             return
-        self._capture(self._latest_state)
+        # Lối thoát thủ công (ánh sáng yếu/đeo kính làm ước lượng góc không
+        # ăn) - chụp ĐÚNG 1 mẫu rồi qua bước tiếp theo luôn, không bắt đủ
+        # _SAMPLES_PER_STEP như luồng tự động (người dùng đã phải tự bấm vì
+        # luồng tự động không nhận ra tư thế, không nên bắt bấm nhiều lần).
+        self._collect_sample(self._latest_state, required=1)
 
-    def _capture(self, state: dict) -> None:
+    def _collect_sample(self, state: dict, required: int = _SAMPLES_PER_STEP) -> None:
         frame = self._worker.latest_frame
         if frame is None:
             return
 
-        self._capturing = True
-        self.embeddings.append(state["embedding"])
         key, _text, _check = _STEPS[self._step_index]
-        if key == "straight":
+        self._step_samples.append(state["embedding"])
+        if key == "straight" and self.avatar_frame is None:
             self.avatar_frame = frame.copy()
             self.avatar_bbox = state["bbox"]
 
+        if len(self._step_samples) < required:
+            return  # còn thiếu mẫu cho bước này - tiếp tục ở tick sau (xem _on_state)
+
+        self.embeddings.extend(self._step_samples)
+        self.pose_samples[key] = list(self._step_samples)
+        self._step_samples = []
+
+        self._capturing = True
         self.scan_view.set_state(RingState.SUCCESS, 1.0)
         self._step_index += 1
         if self._step_index >= len(_STEPS):

@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPainter, QPen, QBrush, QPixmap, QPolygonF
 
 from core.models.camera_device import CameraDevice, ROIRegion, parse_points
+from ui.ui_menu.i18n import tr
 
 _ROI_FILL = QColor(0, 200, 120, 60)
 _ROI_OUTLINE = QColor(0, 200, 120, 220)
@@ -140,7 +141,7 @@ class ROICanvas(QtWidgets.QWidget):
             painter.drawPixmap(self._draw_rect, self._background, QRectF(self._background.rect()))
         else:
             painter.setPen(QColor(200, 200, 200))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Không có hình")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("No image"))
 
         for idx, roi in enumerate(self.rois):
             self._draw_polygon(painter, roi["points"], selected=(idx == self.selected_roi_index))
@@ -187,8 +188,8 @@ class ROICanvas(QtWidgets.QWidget):
         # vector hướng (nx, ny) dùng thẳng được cho widget - chỉ toạ độ GỐC
         # để vẽ mũi tên mới cần quy đổi sang widget-space.
         mid_w = self._to_widget(fmid)
-        self._draw_direction_arrow(painter, mid_w, (nx, ny), _LINE_IN_COLOR, "IN")
-        self._draw_direction_arrow(painter, mid_w, (-nx, -ny), _LINE_OUT_COLOR, "OUT")
+        self._draw_direction_arrow(painter, mid_w, (nx, ny), _LINE_IN_COLOR, tr("IN"))
+        self._draw_direction_arrow(painter, mid_w, (-nx, -ny), _LINE_OUT_COLOR, tr("OUT"))
 
     @staticmethod
     def _draw_direction_arrow(
@@ -268,10 +269,10 @@ class ROICanvas(QtWidgets.QWidget):
 
     def _finish_roi(self) -> None:
         if len(self._draft_points) < 3:
-            QtWidgets.QMessageBox.warning(self, "ROI", "Cần ít nhất 3 điểm để tạo vùng ROI.")
+            QtWidgets.QMessageBox.warning(self, "ROI", tr("At least 3 points are required to create an ROI."))
             return
         name, ok = QtWidgets.QInputDialog.getText(
-            self, "Tên vùng ROI", "Tên:", text=f"ROI {len(self.rois) + 1}"
+            self, tr("ROI Name"), tr("Name:"), text=f"ROI {len(self.rois) + 1}"
         )
         if not ok:
             return
@@ -288,7 +289,7 @@ class ROICanvas(QtWidgets.QWidget):
 class ROIEditorDialog(QtWidgets.QDialog):
     def __init__(self, parent, device: CameraDevice, device_manager):
         super().__init__(parent)
-        self.setWindowTitle(f"ROI Editor — {device.name}")
+        self.setWindowTitle(f"{tr('ROI Editor')} — {device.name}")
         self.resize(1000, 650)
 
         self._device = device
@@ -310,44 +311,46 @@ class ROIEditorDialog(QtWidgets.QDialog):
         self.list_rois = QtWidgets.QListWidget()
         self.list_rois.currentRowChanged.connect(self._on_roi_selected)
 
-        btn_new_roi = QtWidgets.QPushButton("＋  Vẽ ROI mới")
+        btn_new_roi = QtWidgets.QPushButton(tr("＋  Draw New ROI"))
         btn_new_roi.clicked.connect(self.canvas.start_new_roi)
-        btn_delete_roi = QtWidgets.QPushButton("🗑  Xoá ROI đã chọn")
+        btn_delete_roi = QtWidgets.QPushButton(tr("🗑  Delete Selected ROI"))
         btn_delete_roi.clicked.connect(self._on_delete_roi)
 
         self.lbl_line_status = QtWidgets.QLabel()
-        btn_new_line = QtWidgets.QPushButton("📏  Vẽ lại Counting Line")
+        btn_new_line = QtWidgets.QPushButton(tr("📏  Redraw Counting Line"))
         btn_new_line.clicked.connect(self._on_new_line)
-        btn_flip_line = QtWidgets.QPushButton("🔄  Đổi chiều IN/OUT")
+        btn_flip_line = QtWidgets.QPushButton(tr("🔄  Flip IN/OUT Direction"))
         btn_flip_line.clicked.connect(self.canvas.flip_line_direction)
-        btn_delete_line = QtWidgets.QPushButton("🗑  Xoá Line")
+        btn_delete_line = QtWidgets.QPushButton(tr("🗑  Delete Line"))
         btn_delete_line.clicked.connect(self.canvas.delete_line)
 
         hint = QtWidgets.QLabel(
-            "Click để thêm điểm.\n"
-            "Double-click hoặc Enter để đóng vùng ROI (≥ 3 điểm).\n"
-            "Counting Line tự đóng sau điểm thứ 2.\n"
-            "Esc: huỷ vẽ dở.   Backspace: xoá điểm cuối.\n"
-            "Chiều IN/OUT không phụ thuộc hướng vẽ - dùng nút\n"
-            "\"Đổi chiều IN/OUT\" để đảo lại nếu vẽ ngược ý."
+            tr(
+                "Click to add a point.\n"
+                "Double-click or Enter to close an ROI (≥ 3 points).\n"
+                "Counting Line closes automatically after the 2nd point.\n"
+                "Esc: cancel current drawing.   Backspace: remove last point.\n"
+                "IN/OUT direction doesn't depend on draw order - use the\n"
+                "\"Flip IN/OUT Direction\" button to reverse it if needed."
+            )
         )
         hint.setWordWrap(True)
 
-        group_roi = QtWidgets.QGroupBox("Vùng ROI (Occupancy)")
+        group_roi = QtWidgets.QGroupBox(tr("ROI Regions (Occupancy)"))
         roi_layout = QtWidgets.QVBoxLayout(group_roi)
         roi_layout.addWidget(self.list_rois)
-        roi_btn_row = QtWidgets.QHBoxLayout()
-        roi_btn_row.addWidget(btn_new_roi)
-        roi_btn_row.addWidget(btn_delete_roi)
-        roi_layout.addLayout(roi_btn_row)
+        # Xếp DỌC (không phải hàng ngang) - sidebar chỉ rộng cố định 240px
+        # (xem side_widget.setFixedWidth bên dưới), 2 nút chung 1 hàng ngang
+        # không đủ chỗ hiển thị hết text (bug đã gặp: text bị cắt/tràn ra
+        # ngoài nút).
+        roi_layout.addWidget(btn_new_roi)
+        roi_layout.addWidget(btn_delete_roi)
 
-        group_line = QtWidgets.QGroupBox("Counting Line (Vào/Ra)")
+        group_line = QtWidgets.QGroupBox(tr("Counting Line (In/Out)"))
         line_layout = QtWidgets.QVBoxLayout(group_line)
         line_layout.addWidget(self.lbl_line_status)
-        line_btn_row = QtWidgets.QHBoxLayout()
-        line_btn_row.addWidget(btn_new_line)
-        line_btn_row.addWidget(btn_delete_line)
-        line_layout.addLayout(line_btn_row)
+        line_layout.addWidget(btn_new_line)
+        line_layout.addWidget(btn_delete_line)
         line_layout.addWidget(btn_flip_line)
 
         buttons = QtWidgets.QDialogButtonBox(
@@ -392,7 +395,7 @@ class ROIEditorDialog(QtWidgets.QDialog):
     def _on_delete_roi(self) -> None:
         row = self.list_rois.currentRow()
         if row < 0:
-            QtWidgets.QMessageBox.warning(self, "ROI", "Chọn 1 ROI trong danh sách để xoá.")
+            QtWidgets.QMessageBox.warning(self, "ROI", tr("Select an ROI from the list to delete."))
             return
         self.canvas.delete_roi(row)
         self._reload_roi_list()
@@ -404,9 +407,9 @@ class ROIEditorDialog(QtWidgets.QDialog):
     def _refresh_line_status(self) -> None:
         line = self.canvas.counting_line
         if len(line) == 2:
-            self.lbl_line_status.setText(f"Đã đặt: {line[0]} → {line[1]}")
+            self.lbl_line_status.setText(tr("Set: {value}").format(value=f"{line[0]} → {line[1]}"))
         else:
-            self.lbl_line_status.setText("Chưa đặt")
+            self.lbl_line_status.setText(tr("Not set"))
 
     # ------------------------------------------------------------------ #
     # Lấy hình nền (live nếu camera đang chạy, snapshot đồng bộ nếu chưa)
@@ -442,9 +445,11 @@ class ROIEditorDialog(QtWidgets.QDialog):
 
         if not ok or frame is None:
             QtWidgets.QMessageBox.warning(
-                self, "ROI Editor",
-                "Không lấy được hình từ camera (chưa Start và không kết nối được).\n"
-                "Vẫn có thể vẽ ROI/Line trên nền trống theo toạ độ ước lượng.",
+                self, tr("ROI Editor"),
+                tr(
+                    "Could not get a frame from the camera (not started and could not connect).\n"
+                    "You can still draw ROI/Line on a blank background using estimated coordinates."
+                ),
             )
             return
 

@@ -18,6 +18,7 @@ from core.device_manager import DeviceManager
 from core.device_discovery import DeviceDiscoveryWorker
 from core.models.camera_device import CameraDevice, DeviceStatus
 from ui.dialogs.add_device_dialog import AddDeviceDialog
+from ui.ui_menu.i18n import LanguageManager, tr
 
 # Vị trí cột trong tableWidget (đúng thứ tự cột định nghĩa trong .ui)
 COL_CHECK = 0
@@ -42,6 +43,16 @@ _STATUS_KIND = {
     DeviceStatus.UNKNOWN: "unknown",
 }
 
+_TR_TEXT_MAP = {
+    "btn_add_device": "+ Add",
+    "btn_find_online_devices": "🔍 Online Device",
+    "btn_delete_device": "🗑  Delete",
+    "btn_refresh_device": "↻  Refresh",
+    "btn_start_device": "▶  Start",
+    "btn_stop_device": "■  Stop",
+}
+_TR_TABLE_HEADERS = ["", "Name", "IP", "MAC Address", "Serial No.", "Status", "Operation"]
+
 
 class DeviceManagementPage(QtWidgets.QWidget):
     # Phát ra khi người dùng bấm "Config" trên 1 dòng -> MainWindow / PageManager
@@ -62,6 +73,24 @@ class DeviceManagementPage(QtWidgets.QWidget):
 
         self.reload_table()
 
+        self.retranslate_ui()
+        LanguageManager.instance().language_changed.connect(self.retranslate_ui)
+
+    # ------------------------------------------------------------------ #
+    # i18n
+    # ------------------------------------------------------------------ #
+    def retranslate_ui(self, _lang: str = "") -> None:
+        for attr, key in _TR_TEXT_MAP.items():
+            getattr(self, attr).setText(tr(key))
+        self.lineEdit.setPlaceholderText(tr("filter"))
+        for col, key in enumerate(_TR_TABLE_HEADERS):
+            if not key:
+                continue
+            item = self.tableWidget.horizontalHeaderItem(col)
+            if item is not None:
+                item.setText(tr(key))
+        self.reload_table()
+
     # ------------------------------------------------------------------ #
     # Khởi tạo
     # ------------------------------------------------------------------ #
@@ -72,7 +101,14 @@ class DeviceManagementPage(QtWidgets.QWidget):
         # (ResizeToContents) thay vì để Qt tự đặt độ rộng mặc định tuỳ tiện,
         # tránh tình trạng Name phình quá to và các cột sau bị dồn/lấn nhau
         # (bug đã gặp).
-        header.setSectionResizeMode(COL_CHECK, QHeaderView.ResizeMode.ResizeToContents)
+        # COL_CHECK chứa cell WIDGET (container bọc QCheckBox, không phải
+        # QTableWidgetItem) - cùng vấn đề với COL_STATUS bên dưới:
+        # ResizeToContents đo sizeHint widget không đáng tin cậy -> cột bị co
+        # hẹp hơn checkbox thật, checkbox hiển thị không đủ (bug đã gặp). Đặt
+        # cố định đủ rộng thay vì auto-measure; vẫn Interactive để kéo giãn
+        # được nếu cần.
+        header.setSectionResizeMode(COL_CHECK, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(COL_CHECK, 40)
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(COL_IP, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(COL_MAC, QHeaderView.ResizeMode.ResizeToContents)
@@ -166,7 +202,7 @@ class DeviceManagementPage(QtWidgets.QWidget):
         # (checkbox/status badge/nút Operation), tránh bị cắt/tràn ra ngoài.
         self.tableWidget.resizeRowsToContents()
 
-        self.lbl_total_find.setText(f"Total({len(devices)})")
+        self.lbl_total_find.setText(tr("Total({n})").format(n=len(devices)))
 
     def _add_row(self, device: CameraDevice) -> None:
         row = self.tableWidget.rowCount()
@@ -198,7 +234,11 @@ class DeviceManagementPage(QtWidgets.QWidget):
 
     @staticmethod
     def _build_status_badge(device: CameraDevice) -> QtWidgets.QWidget:
-        text = device.status.value + (" · Running" if device.is_running else "")
+        text = (
+            tr("{status} · Running").format(status=tr(device.status.value))
+            if device.is_running
+            else tr(device.status.value)
+        )
         container = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(container)
         layout.setContentsMargins(6, 0, 6, 0)
@@ -217,7 +257,7 @@ class DeviceManagementPage(QtWidgets.QWidget):
 
         btn_config = QtWidgets.QToolButton()
         btn_config.setText("⚙")
-        btn_config.setToolTip("Cấu hình camera")
+        btn_config.setToolTip(tr("Configure camera"))
         # cardRole="tableActionBtn": QSS thu gọn riêng cho nút trong bảng
         # (ui/themes/theme_*.qss) - rule QToolButton chung (min-height 26px +
         # padding) làm nút cao hơn dòng bảng (bug đã gặp: "nút Operation to
@@ -229,12 +269,12 @@ class DeviceManagementPage(QtWidgets.QWidget):
         if device.is_running:
             btn_toggle = QtWidgets.QToolButton()
             btn_toggle.setText("■")
-            btn_toggle.setToolTip("Stop")
+            btn_toggle.setToolTip(tr("Stop"))
             btn_toggle.clicked.connect(lambda: self.device_manager.stop_device(device.id))
         else:
             btn_toggle = QtWidgets.QToolButton()
             btn_toggle.setText("▶")
-            btn_toggle.setToolTip("Start")
+            btn_toggle.setToolTip(tr("Start"))
             btn_toggle.clicked.connect(lambda: self.device_manager.start_device(device.id))
         btn_toggle.setProperty("cardRole", "tableActionBtn")
         layout.addWidget(btn_toggle)
@@ -273,7 +313,7 @@ class DeviceManagementPage(QtWidgets.QWidget):
             return
 
         self.btn_find_online_devices.setEnabled(False)
-        self.btn_find_online_devices.setText("Đang quét...")
+        self.btn_find_online_devices.setText(tr("Scanning..."))
 
         self._discovery_worker = DeviceDiscoveryWorker(scan_usb=True, scan_network=True)
         self._discovery_worker.finished_scan.connect(self._on_discovery_finished)
@@ -282,19 +322,19 @@ class DeviceManagementPage(QtWidgets.QWidget):
     def _on_discovery_finished(self, found: list[CameraDevice]) -> None:
         self.device_manager.merge_discovered_devices(found)
         self.btn_find_online_devices.setEnabled(True)
-        self.btn_find_online_devices.setText("🔍 Online Device")
-        QMessageBox.information(self, "Quét camera", f"Tìm thấy {len(found)} camera.")
+        self.btn_find_online_devices.setText(tr("🔍 Online Device"))
+        QMessageBox.information(self, tr("Camera Scan"), tr("Found {n} camera(s).").format(n=len(found)))
 
     def _on_delete_device(self) -> None:
         ids = self._checked_device_ids()
         if not ids:
-            QMessageBox.warning(self, "Xoá camera", "Vui lòng chọn ít nhất 1 camera.")
+            QMessageBox.warning(self, tr("Delete Camera"), tr("Please select at least 1 camera."))
             return
 
         confirm = QMessageBox.question(
             self,
-            "Xác nhận xoá",
-            f"Xoá {len(ids)} camera đã chọn?",
+            tr("Confirm Delete"),
+            tr("Delete {n} selected camera(s)?").format(n=len(ids)),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:
@@ -303,14 +343,14 @@ class DeviceManagementPage(QtWidgets.QWidget):
     def _on_start_device(self) -> None:
         ids = self._checked_device_ids()
         if not ids:
-            QMessageBox.warning(self, "Start camera", "Vui lòng chọn ít nhất 1 camera.")
+            QMessageBox.warning(self, tr("Start camera"), tr("Please select at least 1 camera."))
             return
         self.device_manager.start_devices(ids)
 
     def _on_stop_device(self) -> None:
         ids = self._checked_device_ids()
         if not ids:
-            QMessageBox.warning(self, "Stop camera", "Vui lòng chọn ít nhất 1 camera.")
+            QMessageBox.warning(self, tr("Stop camera"), tr("Please select at least 1 camera."))
             return
         self.device_manager.stop_devices(ids)
 

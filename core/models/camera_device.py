@@ -48,7 +48,7 @@ class AIConfig:
     # resolution gốc/hiển thị. Giảm xuống Fast/Balanced để tăng tốc khi chạy
     # nhiều camera AI cùng lúc (đổi lại độ chính xác giảm nhẹ với người/vật
     # nhỏ/xa) - xem parse_inference_imgsz().
-    inference_quality: str = "Balanced (480px - khuyến nghị)"
+    inference_quality: str = "Balanced (480px)"
 
 
 # --------------------------------------------------------------------- #
@@ -102,7 +102,7 @@ _INFERENCE_IMGSZ_PRESETS = {"fast": 320, "balanced": 480, "accurate": 640}
 
 def parse_inference_imgsz(inference_quality: str) -> int:
     """Đọc mức Fast/Balanced/Accurate từ AIConfig.inference_quality (vd
-    "Balanced (480px - khuyến nghị)" -> 480) - dùng làm tham số imgsz khi gọi
+    "Balanced (480px)" -> 480) - dùng làm tham số imgsz khi gọi
     model YOLO (pose/ppe/fire/fall) trong AIModelManager, độc lập hoàn toàn
     với resolution gốc/preview - chỉ ảnh hưởng bước resize nội bộ trước khi
     đưa vào model. Giảm xuống Fast/Balanced tăng tốc đáng kể (đo thực tế:

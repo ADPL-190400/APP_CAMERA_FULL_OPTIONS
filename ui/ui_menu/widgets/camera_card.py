@@ -26,6 +26,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QMouseEvent
 
 from ui.ui_menu.models.camera_model import CameraModel
+from ui.ui_menu.i18n import tr
 
 
 def _repaint(widget: QWidget) -> None:
@@ -154,7 +155,7 @@ class CameraCard(QFrame):
         self._btn_full.setObjectName(f"btn_cam_fullscreen_{self._model.cam_id}")
         self._btn_full.setProperty("cardRole", "fullBtn")
         self._btn_full.setFixedSize(20, 20)
-        self._btn_full.setToolTip("Phóng to")
+        self._btn_full.setToolTip(tr("Fullscreen"))
         self._btn_full.clicked.connect(
             lambda: self.fullscreen_requested.emit(self._model.cam_id)
         )
@@ -234,16 +235,16 @@ class CameraCard(QFrame):
             self._lbl_people.setText(f"👤{m.num_people}  ↓{m.num_in} ↑{m.num_out}")
         self._lbl_people.setStyleSheet("padding:1px 5px;")
 
-        # ── Alert badge (PPE / Fire / Fall) ─────────────────────────────────
+        # ── Alert badge ───────────────────────────────────────────────────
         alerts = []
         if m.fire_alert:
-            alerts.append("🔥 CHÁY")
+            alerts.append(tr("🔥 FIRE"))
         if m.fall_alert:
-            alerts.append("🚨 TÉ NGÃ")
+            alerts.append(tr("🚨 FALL"))
         if m.ppe_violation:
-            alerts.append("⚠ PPE")
+            alerts.append(tr("⚠ PPE"))
         if m.stranger_alert:
-            alerts.append("🧑‍❓ NGƯỜI LẠ")
+            alerts.append(tr("🧑‍❓ STRANGER"))
         self._lbl_alert.setVisible(online and bool(alerts))
         if alerts:
             self._lbl_alert.setText("  ".join(alerts))
@@ -274,7 +275,7 @@ class CameraCard(QFrame):
         lần rebuild grid (xem _on_cameras_rebuilt), phản ánh đúng camera nào
         (nếu có) đang ở chế độ phóng to 1x1."""
         self._btn_full.setText("🗗" if is_fullscreen else "⛶")
-        self._btn_full.setToolTip("Thu nhỏ" if is_fullscreen else "Phóng to")
+        self._btn_full.setToolTip(tr("Exit Fullscreen") if is_fullscreen else tr("Fullscreen"))
 
     @property
     def model(self) -> CameraModel:

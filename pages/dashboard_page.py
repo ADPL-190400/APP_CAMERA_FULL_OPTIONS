@@ -27,6 +27,7 @@ from core.event_dedup import PresenceDedup
 from core.models.camera_device import CameraDevice, DeviceStatus
 from core.path_manager import BASE_DIR
 from core.system_stats import SystemStats, SystemStatsMonitor
+from ui.ui_menu.i18n import LanguageManager, tr
 
 # Cột bảng Camera Health (đúng thứ tự cột trong .ui)
 COL_HEALTH_CAMERA = 0
@@ -63,15 +64,69 @@ _AI_MODEL_ROWS = [
 
 # Nhãn cảnh báo - khớp field trong dict do CameraPipeline.ai_result_ready phát ra.
 _ALARM_KINDS = [
-    ("ppe_violation", "⚠ PPE vi phạm"),
-    ("fire_alert", "🔥 Cháy"),
-    ("fall_alert", "🚨 Té ngã"),
-    ("stranger_alert", "🧑‍❓ Người lạ"),
+    ("ppe_violation", "⚠ PPE violation"),
+    ("fire_alert", "🔥 Fire"),
+    ("fall_alert", "🚨 Fall"),
+    ("stranger_alert", "🧑‍❓ Stranger"),
 ]
 
 _PRESENCE_GRACE_SEC = 5.0   # giống liveview_page.py - tránh Event Feed nhảy text liên tục
 _MAX_EVENTS = 200
 _STATS_POLL_INTERVAL_MS = 3000
+
+# Widget chỉ setText/setToolTip theo đúng 1 key cố định - dùng bởi
+# retranslate_ui(). Giá trị KPI/status (0, "—"...) không đưa vào đây vì bị
+# ghi đè ngay bởi dữ liệu thật lúc _refresh_camera_dependent_ui()/
+# _apply_system_stats() chạy lần đầu trong __init__.
+_TR_TEXT_MAP = {
+    "lbl_total_camera_title": "Total Cameras",
+    "lbl_online_camera_title": "Online",
+    "lbl_ai_active_title": "AI Active",
+    "lbl_active_streams_title": "Streams",
+    "lbl_recording_title": "Recording",
+    "lbl_alarm_title": "Alarms",
+    "lbl_gpu_title": "GPU",
+    "lbl_cpu_title": "CPU",
+    "lbl_ram_title": "RAM",
+    "lbl_network_title": "Network",
+    "lbl_camera_health_title": "Camera Health",
+    "lbl_ai_status_title": "AI Engine",
+    "lbl_event_feed_title": "Event Feed",
+    "btn_open_event_log": "All →",
+    "btn_clear_event_feed": "Clear",
+    "lbl_sysmon_title": "System",
+    "lbl_sysmon_cpu": "CPU",
+    "lbl_sysmon_gpu": "GPU",
+    "lbl_sysmon_ram": "RAM",
+    "lbl_sysmon_vram": "VRAM",
+    "lbl_sysmon_disk": "Disk",
+    "lbl_temp_caption": "Temp",
+    "lbl_net_speed_caption": "Net",
+    "lbl_storage_title": "Storage",
+    "lbl_disk_usage_caption": "Used",
+    "lbl_total_storage_caption": "Total",
+    "lbl_used_storage_caption": "Used",
+    "lbl_free_space_caption": "Free",
+    "lbl_recording_status_caption": "Recording",
+    "lbl_remaining_days_caption": "Est. Days",
+}
+_TR_TOOLTIP_MAP = {
+    "btn_refresh_dashboard": "Refresh all dashboard data",
+    "btn_restart_all_camera": "Restart all camera streams",
+    "btn_emergency_stop_ai": "Stop all AI pipelines immediately",
+}
+_TR_BUTTON_TEXT_MAP = {
+    "btn_refresh_dashboard": "↻  Refresh",
+    "btn_restart_all_camera": "⟳  Restart Cameras",
+    "btn_emergency_stop_ai": "⛔  Emergency Stop",
+}
+_TR_TABLE_HEADERS = {
+    "table_camera_health": ["Camera", "Status", "Stream", "AI", "REC", "FPS", "Heartbeat"],
+    "table_ai_status": ["Model", "Status", "Active Cameras", "GPU %", "Last ms"],
+}
+_TR_COMBO_ITEMS = {
+    "combo_event_filter": ["All Events", "Alarms", "AI Events", "System", "Camera"],
+}
 
 
 class DashboardPage(QtWidgets.QWidget):
@@ -101,6 +156,8 @@ class DashboardPage(QtWidgets.QWidget):
 
         self._setup_tables()
         self._connect_signals()
+        self.retranslate_ui()
+        LanguageManager.instance().language_changed.connect(self.retranslate_ui)
 
         # Định kỳ Online/Offline chưa từng được bật ở đâu trong app trước đây -
         # Dashboard là trang mặc định khi mở app nên là nơi hợp lý để bật (an
@@ -147,28 +204,60 @@ class DashboardPage(QtWidgets.QWidget):
         self.btn_emergency_stop_ai.clicked.connect(self._on_emergency_stop_clicked)
 
     # ------------------------------------------------------------------ #
+    # i18n
+    # ------------------------------------------------------------------ #
+    def retranslate_ui(self, _lang: str = "") -> None:
+        for attr, key in _TR_TEXT_MAP.items():
+            getattr(self, attr).setText(tr(key))
+        for attr, key in _TR_TOOLTIP_MAP.items():
+            getattr(self, attr).setToolTip(tr(key))
+        for attr, key in _TR_BUTTON_TEXT_MAP.items():
+            getattr(self, attr).setText(tr(key))
+        for attr, keys in _TR_TABLE_HEADERS.items():
+            table = getattr(self, attr)
+            for col, key in enumerate(keys):
+                item = table.horizontalHeaderItem(col)
+                if item is not None:
+                    item.setText(tr(key))
+        for attr, keys in _TR_COMBO_ITEMS.items():
+            combo = getattr(self, attr)
+            current = combo.currentIndex()
+            combo.blockSignals(True)
+            for i, key in enumerate(keys):
+                combo.setItemText(i, tr(key))
+            combo.blockSignals(False)
+            combo.setCurrentIndex(current)
+        # Dữ liệu động (KPI/table/status) - vẽ lại theo ngôn ngữ mới.
+        self._refresh_camera_dependent_ui()
+        if self._latest_stats is not None:
+            self._apply_system_stats(self._latest_stats)
+        self._render_event_feed()
+        self.lbl_total_events_today.setText(tr("Events Today: {count}").format(count=len(self._events)))
+
+    # ------------------------------------------------------------------ #
     # Signal từ DeviceManager - Event Feed (System / Camera) + refresh
     # ------------------------------------------------------------------ #
     def _on_device_status_changed(self, device_id: str, status: str) -> None:
         device = self.device_manager.get_device(device_id)
         name = device.name if device else device_id
-        self._append_event("System", f"{name}: → {status}")
+        self._append_event("System", tr("{name}: → {status}").format(name=name, status=tr(status)))
         self._refresh_camera_dependent_ui()
 
     def _on_device_running_changed(self, device_id: str, is_running: bool) -> None:
         device = self.device_manager.get_device(device_id)
         name = device.name if device else device_id
-        self._append_event("Camera", f"{name}: {'Started' if is_running else 'Stopped'}")
+        state = tr("Started") if is_running else tr("Stopped")
+        self._append_event("Camera", tr("{name}: {state}").format(name=name, state=state))
         self._refresh_camera_dependent_ui()
 
     def _on_device_added(self, device_id: str) -> None:
         device = self.device_manager.get_device(device_id)
         name = device.name if device else device_id
-        self._append_event("System", f"{name}: Đã thêm camera mới")
+        self._append_event("System", tr("{name}: New camera added").format(name=name))
 
     def _on_device_removed(self, device_id: str) -> None:
         self._last_online_seen.pop(device_id, None)
-        self._append_event("System", f"{device_id}: Đã xoá camera")
+        self._append_event("System", tr("{device_id}: Camera removed").format(device_id=device_id))
 
     # ------------------------------------------------------------------ #
     # ai_result_ready - KPI "Active Alarms" (trạng thái NGAY LÚC NÀY) + Event
@@ -183,18 +272,20 @@ class DashboardPage(QtWidgets.QWidget):
 
         for key, label in _ALARM_KINDS:
             if result.get(key) and self._alarm_dedup.is_new_occurrence((device_id, key)):
-                self._append_event("Alarms", f"{name}: {label}")
+                self._append_event("Alarms", tr("{name}: {label}").format(name=name, label=tr(label)))
 
         for known_name in result.get("known_faces", []):
             if self._detection_dedup.is_new_occurrence((device_id, known_name)):
-                self._append_event("AI Events", f"{name}: Nhận diện {known_name}")
+                self._append_event(
+                    "AI Events", tr("{name}: Recognized {known_name}").format(name=name, known_name=known_name)
+                )
 
         self._refresh_alarm_kpi()
 
     def _refresh_alarm_kpi(self) -> None:
         count = sum(1 for active in self._current_alarm_state.values() if active)
         self.lbl_alarm_value.setText(str(count))
-        self.lbl_alarm_status.setText("🔴 Đang có cảnh báo" if count else "No alarms")
+        self.lbl_alarm_status.setText(tr("🔴 Active alarm") if count else tr("No alarms"))
 
     # ------------------------------------------------------------------ #
     # Event Feed
@@ -204,10 +295,10 @@ class DashboardPage(QtWidgets.QWidget):
         if len(self._events) > _MAX_EVENTS:
             self._events.pop(0)
         self._render_event_feed()
-        self.lbl_total_events_today.setText(f"Events Today: {len(self._events)}")
+        self.lbl_total_events_today.setText(tr("Events Today: {count}").format(count=len(self._events)))
 
     def _render_event_feed(self) -> None:
-        selected = self.combo_event_filter.currentText()
+        selected = _TR_COMBO_ITEMS["combo_event_filter"][self.combo_event_filter.currentIndex()]
         self.list_event_feed.clear()
         for ts, category, text in reversed(self._events):
             if selected != "All Events" and category != selected:
@@ -222,7 +313,7 @@ class DashboardPage(QtWidgets.QWidget):
         self._alarm_dedup.clear()
         self._detection_dedup.clear()
         self._render_event_feed()
-        self.lbl_total_events_today.setText("Events Today: 0")
+        self.lbl_total_events_today.setText(tr("Events Today: {count}").format(count=0))
 
     def _on_open_event_log(self) -> None:
         self.open_event_log.emit()
@@ -246,27 +337,32 @@ class DashboardPage(QtWidgets.QWidget):
         ip_count = sum(1 for d in devices if d.device_type.value == "IP")
 
         self.lbl_total_camera_value.setText(str(total))
-        self.lbl_total_camera_status.setText(f"{ip_count} IP · {total - ip_count} USB" if total else "—")
+        self.lbl_total_camera_status.setText(
+            tr("{ip} IP · {usb} USB").format(ip=ip_count, usb=total - ip_count) if total else "—"
+        )
 
         self.lbl_online_camera_value.setText(str(online))
-        self.lbl_online_camera_status.setText(f"{total - online} offline" if total else "—")
+        self.lbl_online_camera_status.setText(
+            tr("{n} offline").format(n=total - online) if total else "—"
+        )
 
         self.lbl_ai_active_value.setText(str(len(ai_active)))
-        self.lbl_ai_active_status.setText(f"của {len(running)} đang chạy" if running else "—")
+        self.lbl_ai_active_status.setText(tr("of {n} running").format(n=len(running)) if running else "—")
 
         self.lbl_active_streams_value.setText(str(len(running)))
-        self.lbl_active_streams_status.setText("camera đang stream" if running else "—")
+        self.lbl_active_streams_status.setText(tr("cameras streaming") if running else "—")
 
         self.lbl_recording_value.setText(str(len(recording)))
         self.lbl_recording_status.setText(
-            f"{len(recording)} camera đã cấu hình ghi hình" if recording else "Không có"
+            tr("{n} cameras configured to record").format(n=len(recording)) if recording else tr("None")
         )
 
         is_engine_running = bool(ai_active)
-        self.lbl_ai_engine_status_bar.setText(f"AI Engine: {'Running' if is_engine_running else 'Idle'}")
-        self.lbl_ai_engine_status.setText("● Running" if is_engine_running else "● Idle")
-        self.lbl_camera_thread_count.setText(f"Threads: {len(running)}")
-        self.lbl_status_active_streams.setText(f"Streams: {len(running)}")
+        engine_state = tr("Running") if is_engine_running else tr("Idle")
+        self.lbl_ai_engine_status_bar.setText(tr("AI Engine: {state}").format(state=engine_state))
+        self.lbl_ai_engine_status.setText(tr("● {state}").format(state=engine_state))
+        self.lbl_camera_thread_count.setText(tr("Threads: {n}").format(n=len(running)))
+        self.lbl_status_active_streams.setText(tr("Streams: {n}").format(n=len(running)))
 
         self._reload_camera_health_table(devices)
         self._reload_ai_status_table(devices)
@@ -284,34 +380,38 @@ class DashboardPage(QtWidgets.QWidget):
             table.insertRow(row)
             table.setItem(row, COL_HEALTH_CAMERA, QTableWidgetItem(device.name))
 
-            status_item = QTableWidgetItem(device.status.value)
+            status_item = QTableWidgetItem(tr(device.status.value))
             status_item.setForeground(Qt.GlobalColor.white)
             status_item.setBackground(QColor(_STATUS_COLOR.get(device.status, "#9e9e9e")))
             table.setItem(row, COL_HEALTH_STATUS, status_item)
 
-            table.setItem(row, COL_HEALTH_STREAM, QTableWidgetItem("Running" if device.is_running else "Stopped"))
+            table.setItem(
+                row, COL_HEALTH_STREAM, QTableWidgetItem(tr("Running") if device.is_running else tr("Stopped"))
+            )
             table.setItem(
                 row, COL_HEALTH_AI,
-                QTableWidgetItem("ON" if device.is_running and device.ai.enabled else "OFF"),
+                QTableWidgetItem(tr("ON") if device.is_running and device.ai.enabled else tr("OFF")),
             )
             table.setItem(
                 row, COL_HEALTH_REC,
-                QTableWidgetItem("ON" if device.is_running and device.recording.enabled else "OFF"),
+                QTableWidgetItem(tr("ON") if device.is_running and device.recording.enabled else tr("OFF")),
             )
             table.setItem(row, COL_HEALTH_FPS, QTableWidgetItem(str(device.fps) if device.is_running else "—"))
             table.setItem(row, COL_HEALTH_HEARTBEAT, QTableWidgetItem(self._heartbeat_text(device)))
         table.setSortingEnabled(True)
 
-        self.lbl_online_camera_count.setText(f"Online: {online_count} / {len(devices)}")
+        self.lbl_online_camera_count.setText(
+            tr("Online: {online} / {total}").format(online=online_count, total=len(devices))
+        )
 
     def _heartbeat_text(self, device: CameraDevice) -> str:
         if device.status == DeviceStatus.ONLINE:
-            return "just now"
+            return tr("just now")
         last_seen = self._last_online_seen.get(device.id)
         if last_seen is None:
             return "—"
         elapsed = int(time.monotonic() - last_seen)
-        return f"{elapsed}s ago" if elapsed < 60 else f"{elapsed // 60}m ago"
+        return tr("{n}s ago").format(n=elapsed) if elapsed < 60 else tr("{n}m ago").format(n=elapsed // 60)
 
     def _reload_ai_status_table(self, devices: list[CameraDevice]) -> None:
         loaded = self.ai_manager.loaded_status()
@@ -324,10 +424,10 @@ class DashboardPage(QtWidgets.QWidget):
         for key, label in _AI_MODEL_ROWS:
             row = table.rowCount()
             table.insertRow(row)
-            table.setItem(row, COL_AI_MODEL, QTableWidgetItem(label))
+            table.setItem(row, COL_AI_MODEL, QTableWidgetItem(tr(label)))
 
             is_loaded = loaded.get(key, False)
-            status_item = QTableWidgetItem("Loaded" if is_loaded else "Not loaded")
+            status_item = QTableWidgetItem(tr("Loaded") if is_loaded else tr("Not loaded"))
             status_item.setForeground(QColor("#2e7d32" if is_loaded else "#9e9e9e"))
             table.setItem(row, COL_AI_STATUS, status_item)
 
@@ -366,7 +466,7 @@ class DashboardPage(QtWidgets.QWidget):
         # --- KPI: CPU / RAM / GPU / Network ---
         self.progress_cpu_card.setValue(int(stats.cpu_percent))
         self.lbl_cpu_value.setText(f"{stats.cpu_percent:.0f}%")
-        self.lbl_cpu_status.setText("Cao" if stats.cpu_percent >= 80 else "Bình thường")
+        self.lbl_cpu_status.setText(tr("High") if stats.cpu_percent >= 80 else tr("Normal"))
 
         self.progress_ram_card.setValue(int(stats.ram_percent))
         self.lbl_ram_value.setText(f"{stats.ram_percent:.0f}%")
@@ -380,8 +480,8 @@ class DashboardPage(QtWidgets.QWidget):
             )
         else:
             self.progress_gpu_usage.setValue(0)
-            self.lbl_gpu_value.setText("N/A")
-            self.lbl_gpu_status.setText("No GPU")
+            self.lbl_gpu_value.setText(tr("N/A"))
+            self.lbl_gpu_status.setText(tr("No GPU"))
 
         total_mbps = stats.net_sent_mbps + stats.net_recv_mbps
         self.lbl_network_value.setText(f"{total_mbps:.1f} Mbps")
@@ -422,7 +522,7 @@ class DashboardPage(QtWidgets.QWidget):
 
         recording_count = sum(1 for d in self.device_manager.all_devices() if d.is_running and d.recording.enabled)
         self.lbl_recording_status_value.setText(
-            f"{recording_count} camera đang ghi" if recording_count else "Không có camera nào ghi"
+            tr("{n} cameras recording").format(n=recording_count) if recording_count else tr("No cameras recording")
         )
         # lbl_remaining_days: chưa có VideoWriter thật (recording.enabled chỉ
         # là cấu hình) -> không có tốc độ ghi thật để ước tính, để "—" thay vì đoán.
@@ -437,10 +537,10 @@ class DashboardPage(QtWidgets.QWidget):
     def _on_restart_all_clicked(self) -> None:
         running_ids = [d.id for d in self.device_manager.all_devices() if d.is_running]
         if not running_ids:
-            QMessageBox.information(self, "Restart Cameras", "Không có camera nào đang chạy.")
+            QMessageBox.information(self, tr("Restart Cameras"), tr("No cameras are currently running."))
             return
         confirm = QMessageBox.question(
-            self, "Restart Cameras", f"Khởi động lại {len(running_ids)} camera đang chạy?",
+            self, tr("Restart Cameras"), tr("Restart {n} running camera(s)?").format(n=len(running_ids)),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:
@@ -451,12 +551,14 @@ class DashboardPage(QtWidgets.QWidget):
     def _on_emergency_stop_clicked(self) -> None:
         targets = [d for d in self.device_manager.all_devices() if d.is_running and d.ai.enabled]
         if not targets:
-            QMessageBox.information(self, "Emergency Stop", "Không có camera nào đang bật AI.")
+            QMessageBox.information(self, tr("Emergency Stop"), tr("No cameras currently have AI enabled."))
             return
         confirm = QMessageBox.question(
-            self, "Emergency Stop AI",
-            f"Tắt AI trên {len(targets)} camera đang chạy?\n"
-            "(Camera vẫn tiếp tục stream, chỉ tắt xử lý AI - không dừng hẳn camera.)",
+            self, tr("Emergency Stop AI"),
+            tr(
+                "Turn off AI on {n} running camera(s)?\n"
+                "(Cameras will keep streaming, only AI processing stops - cameras won't stop entirely.)"
+            ).format(n=len(targets)),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:

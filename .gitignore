@@ -1,3 +1,9 @@
 venv/
 process/
 data/
+build/
+dist/
+logs/
+__pycache__/
+*.pyc
+config/

@@ -1,0 +1,39 @@
+# Cai dat theo 2 buoc (torch/torchvision ban CUDA khong nam tren PyPI thuong):
+#
+#   1) pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#   2) pip install -r requirements.txt
+#
+# Sau khi cai xong, LUON chay lai lenh duoi day 1 lan (insightface ep cai kem
+# ban "onnxruntime" CPU-only, ghi de mat file cua "onnxruntime-gpu" vi 2 goi
+# nay dung chung 1 thu muc import "onnxruntime" - cai lai onnxruntime-gpu
+# sau cung de file GPU la ban con lai):
+#
+#   pip uninstall -y onnxruntime onnxruntime-gpu && pip install onnxruntime-gpu==1.20.2
+#
+# onnxruntime-gpu PIN o 1.20.2 (khong dung ban moi nhat 1.28.x): tu ban ~1.24+
+# wheel Windows doi sang doi hoi CUDA 13 (can cublasLt64_13.dll), trong khi
+# may nay (va nhieu may khac) chi co CUDA Toolkit 12.x -> CUDAExecutionProvider
+# am tham fallback CPU (chi in loi, khong crash). 1.20.2 la ban CUDA-12 da
+# verify chay dung CUDAExecutionProvider that tren may nay (xem
+# core/ai_model_manager.py:_session_has_cuda - code TU DONG phat hien va
+# lach qua onnx2torch/torch neu onnxruntime-gpu tren mot may nao do van fallback
+# CPU, nen khong bat buoc phai dung dung 1.20.2, nhung ban nay la ban da xac
+# nhan hoat dong tren may hien tai).
+#
+# Kiem tra da chay GPU that chua:
+#   python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+#   -> phai thay "CUDAExecutionProvider" trong danh sach.
+
+PyQt6==6.11.0
+numpy==2.4.4
+opencv-python==5.0.0.93
+onnx==1.22.0
+onnx2torch==1.5.15
+onnxruntime-gpu==1.20.2
+insightface==1.0.1
+ultralytics==8.4.115
+scipy==1.17.1
+easydict==1.13
+PyYAML==6.0.3
+requests==2.34.2
+psutil==7.2.2

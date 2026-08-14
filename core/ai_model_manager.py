@@ -23,14 +23,78 @@ import time
 from contextlib import contextmanager
 
 import numpy as np
+import onnx
 import torch
 from insightface.app import FaceAnalysis
+from onnx2torch import convert as onnx2torch_convert
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
+from core.ai_settings import AISettings
 from core.path_manager import get_model_path
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _session_has_cuda(session) -> bool:
+    """True nếu 1 onnxruntime.InferenceSession THỰC SỰ có CUDAExecutionProvider
+    khả dụng (không chỉ được yêu cầu). Có máy (vd aarch64 - không có wheel
+    onnxruntime-gpu cho kiến trúc đó) khiến onnxruntime ÂM THẦM fallback về
+    CPUExecutionProvider dù code tưởng đang chạy GPU (chỉ in 1 UserWarning,
+    không lỗi) - session.get_providers() phản ánh đúng provider ĐANG active,
+    khác ctx_id/providers lúc request. Dùng để quyết định có cần lách qua
+    _TorchOnnxSession (onnx2torch) hay dùng thẳng onnxruntime-gpu (máy này -
+    xem _get_face_model)."""
+    return "CUDAExecutionProvider" in session.get_providers()
+
+
+class _TorchOnnxSession:
+    """Thay thế onnxruntime.InferenceSession bên trong các model con của
+    insightface (SCRFD detection, ArcFaceONNX recognition) bằng 1 bản chạy
+    qua onnx2torch (convert ONNX -> torch.nn.Module) trên torch/CUDA.
+
+    CHỈ dùng khi onnxruntime KHÔNG tự chạy được CUDAExecutionProvider (xem
+    _session_has_cuda) - ví dụ PyPI không có wheel onnxruntime-gpu cho
+    aarch64. torch/CUDA vẫn hoạt động bình thường trên những máy đó (YOLO
+    dùng torch trực tiếp) nên dùng onnx2torch để chạy 2 model ONNX của
+    insightface qua torch/CUDA thay vì onnxruntime - đã verify số học khớp
+    onnxruntime-CPU (cosine similarity ~0.9999997, sai số float không đáng
+    kể) và nhanh hơn ~9-22 lần so với onnxruntime-CPU khi đo thực tế. Máy có
+    onnxruntime-gpu hoạt động đúng (CUDAExecutionProvider thật) thì dùng
+    thẳng onnxruntime, không qua class này nữa - vừa đỡ 1 tầng convert, vừa
+    tận dụng tối ưu riêng của onnxruntime (vd TensorRT nếu có).
+
+    Chỉ implement đúng phần bề mặt API mà SCRFD/ArcFaceONNX thực sự gọi tới
+    (get_inputs/get_outputs cho _init_vars() lúc khởi tạo, set_providers()
+    cho prepare(), run() cho forward()/get_feat()) - KHÔNG phải triển khai
+    lại toàn bộ onnxruntime.InferenceSession."""
+
+    def __init__(self, model_path: str, meta_session, device: str):
+        self._meta_session = meta_session  # onnxruntime session gốc - chỉ dùng đọc metadata, không chạy inference qua nó nữa
+        self._output_names = [o.name for o in meta_session.get_outputs()]
+        self._device = device
+        self._torch_model = onnx2torch_convert(onnx.load(model_path)).eval().to(device)
+
+    def get_inputs(self):
+        return self._meta_session.get_inputs()
+
+    def get_outputs(self):
+        return self._meta_session.get_outputs()
+
+    def set_providers(self, *_args, **_kwargs) -> None:
+        pass  # device cố định lúc khởi tạo (theo DEVICE toàn cục) - không cần đổi provider theo runtime
+
+    def run(self, output_names, input_feed: dict) -> list:
+        (blob,) = input_feed.values()
+        t_in = torch.from_numpy(blob).to(self._device)
+        with torch.no_grad():
+            t_out = self._torch_model(t_in)
+        outs = [t_out] if isinstance(t_out, torch.Tensor) else list(t_out)
+        outs = [o.detach().cpu().numpy() for o in outs]
+        if output_names is None or list(output_names) == self._output_names:
+            return outs
+        by_name = dict(zip(self._output_names, outs))
+        return [by_name[n] for n in output_names]
 
 
 class AIModelManager:
@@ -145,7 +209,7 @@ class AIModelManager:
         chính xác giảm nhẹ - xem parse_inference_imgsz() để biết số đo thực tế."""
         model = self._get_pose_model()
         with self._pose_call_lock, self._measure("pose"):
-            results = model(frame, device=DEVICE, conf=0.4, verbose=False, imgsz=imgsz)
+            results = model(frame, device=DEVICE, conf=AISettings.instance().pose_conf, verbose=False, imgsz=imgsz)
         return results[0]
 
     # ------------------------------------------------------------------ #
@@ -172,7 +236,9 @@ class AIModelManager:
         tracking (đếm vào/ra, occupancy) và PPE zone-check."""
         model = self._get_human_model()
         with self._human_call_lock, self._measure("human"):
-            results = model(frame, device=DEVICE, conf=0.5, classes=[0], verbose=False, imgsz=imgsz)
+            results = model(
+                frame, device=DEVICE, conf=AISettings.instance().human_conf, classes=[0], verbose=False, imgsz=imgsz
+            )
         return results[0]
 
     # ------------------------------------------------------------------ #
@@ -201,9 +267,10 @@ class AIModelManager:
         cho từng loại thay vì cộng dồn, vì cộng dồn sẽ đếm trùng 1 vest thật
         nếu cả 2 model cùng detect ra được nó."""
         model_a, model_b = self._get_ppe_models()
+        ppe_conf = AISettings.instance().ppe_conf
         with self._ppe_call_lock, self._measure("ppe"):
-            result_a = model_a(frame, classes=[1, 2], device=DEVICE, verbose=False, conf=0.5, imgsz=imgsz)[0]
-            result_b = model_b(frame, classes=[1, 12], device=DEVICE, verbose=False, conf=0.5, imgsz=imgsz)[0]
+            result_a = model_a(frame, classes=[1, 2], device=DEVICE, verbose=False, conf=ppe_conf, imgsz=imgsz)[0]
+            result_b = model_b(frame, classes=[1, 12], device=DEVICE, verbose=False, conf=ppe_conf, imgsz=imgsz)[0]
 
         classes_a = result_a.boxes.cls.cpu().numpy().astype(int) if len(result_a.boxes) else np.array([], dtype=int)
         classes_b = result_b.boxes.cls.cpu().numpy().astype(int) if len(result_b.boxes) else np.array([], dtype=int)
@@ -215,43 +282,55 @@ class AIModelManager:
     # ------------------------------------------------------------------ #
     # Fire detection - dùng chung cho mọi camera, chạy trên TOÀN khung
     # hình (port từ YOLO_FIRE.py, classes=[0, 2] tương ứng "fire"/"smoke"
-    # trong fire_detection.pt).
+    # trong fire_detection_new.pt - đã verify cùng thứ tự class với bản cũ:
+    # {0: fire, 1: other/default, 2: smoke}).
     # ------------------------------------------------------------------ #
     def _get_fire_model(self) -> YOLO:
         if self._fire_model is None:
             with self._fire_load_lock:
                 if self._fire_model is None:
-                    self._fire_model = YOLO(get_model_path("fire_detection.pt")).to(DEVICE)
+                    self._fire_model = YOLO(get_model_path("fire_detection_new.pt")).to(DEVICE)
         return self._fire_model
 
     def detect_fire(self, frame, imgsz: int = 480) -> Results:
-        """Chạy fire_detection.pt (model dùng chung) trên toàn bộ frame BGR.
+        """Chạy fire_detection_new.pt (model dùng chung) trên toàn bộ frame BGR.
         Trả về Ultralytics Results - CameraPipeline chỉ cần kiểm tra
         len(result.boxes) > 0 để biết có cháy/khói hay không."""
         model = self._get_fire_model()
         with self._fire_call_lock, self._measure("fire"):
-            results = model(frame, classes=[0, 2], device=DEVICE, verbose=False, conf=0.5, imgsz=imgsz)
+            results = model(
+                frame, classes=[0, 2], device=DEVICE, verbose=False, conf=AISettings.instance().fire_conf, imgsz=imgsz
+            )
         return results[0]
 
     # ------------------------------------------------------------------ #
     # Fall detection - dùng chung cho mọi camera, chạy trên 1 crop quanh
     # người (CameraPipeline tự crop dựa theo bbox + padding, port từ
-    # Fall_detection.py).
+    # Fall_detection.py). fall_detection_new.pt có 3 class {0: fallen,
+    # 1: sitting, 2: standing} (bản cũ chỉ có 1 class "Fall-Detected") -
+    # PHẢI lọc classes=[0] ("fallen"), nếu không người đang ngồi/đứng bình
+    # thường (luôn xuất hiện, confidence cao) sẽ bị tính nhầm thành ngã.
     # ------------------------------------------------------------------ #
     def _get_fall_model(self) -> YOLO:
         if self._fall_model is None:
             with self._fall_load_lock:
                 if self._fall_model is None:
-                    self._fall_model = YOLO(get_model_path("fall_detection.pt")).to(DEVICE)
+                    self._fall_model = YOLO(get_model_path("fall_detection_new.pt")).to(DEVICE)
         return self._fall_model
 
     def check_fall(self, crop, imgsz: int = 480) -> float:
-        """Chạy fall_detection.pt trên 1 crop quanh người (numpy BGR). Trả về
-        confidence cao nhất tìm được (0.0 nếu không có box nào) - CameraPipeline
-        so với FALL_CONF_THRESHOLD rồi làm mượt qua buffer nhiều frame."""
+        """Chạy fall_detection_new.pt trên 1 crop quanh người (numpy BGR),
+        chỉ lấy class "fallen" (index 0), lọc theo AISettings.instance().fall_conf
+        (chỉnh được qua UI - ui/dialogs/ai_settings_dialog.py). Trả về
+        confidence cao nhất tìm được (0.0 nếu không có box "fallen" nào,
+        nghĩa là không có box nào vượt fall_conf) - CameraPipeline làm mượt
+        thêm qua buffer nhiều frame (xem AISettings.fall_confirm_window/
+        fall_confirm_min_count)."""
         model = self._get_fall_model()
         with self._fall_call_lock, self._measure("fall"):
-            result = model(crop, conf=0.5, device=DEVICE, verbose=False, imgsz=imgsz)[0]
+            result = model(
+                crop, classes=[0], conf=AISettings.instance().fall_conf, device=DEVICE, verbose=False, imgsz=imgsz
+            )[0]
         if result.boxes is None or len(result.boxes) == 0:
             return 0.0
         return float(result.boxes.conf.max().item())
@@ -268,14 +347,42 @@ class AIModelManager:
                         allowed_modules=["detection", "recognition"],
                         root=get_model_path("face"),
                     )
-                    model.prepare(ctx_id=0 if DEVICE == "cuda" else -1)
+                    # model_zoo.get_model() mặc định request providers=
+                    # ['CUDAExecutionProvider', 'CPUExecutionProvider'] nên
+                    # nếu máy có onnxruntime-gpu hoạt động đúng thì mỗi
+                    # session ở đây ĐÃ chạy CUDA thật rồi (session_has_cuda
+                    # sẽ True) - chỉ cần lách qua _TorchOnnxSession
+                    # (onnx2torch) khi onnxruntime ÂM THẦM fallback CPU (máy
+                    # không có wheel onnxruntime-gpu phù hợp, vd aarch64) -
+                    # xem docstring _session_has_cuda/_TorchOnnxSession.
+                    # PHẢI làm TRƯỚC khi gọi model.prepare() vì prepare() có
+                    # thể gọi session.set_providers() (khi ctx_id<0).
+                    if DEVICE == "cuda" and not _session_has_cuda(model.det_model.session):
+                        for sub_model in model.models.values():
+                            sub_model.session = _TorchOnnxSession(sub_model.model_file, sub_model.session, DEVICE)
+                    # det_size=(640, 640) tường minh - nếu để None, insightface
+                    # tự chọn chế độ "auto" (list [(128,128),(640,640)]) và
+                    # CHẠY DETECTION 2 LẦN mỗi frame (128px rồi 640px, gộp kết
+                    # quả bằng NMS) - lãng phí cố định trên MỌI frame, không
+                    # liên quan số khuôn mặt. Chỉ dùng 640px (kích thước lớn
+                    # hơn, cũng chính xác hơn trong 2 lựa chọn cũ) -> giảm ~1
+                    # nửa chi phí detection mà không đổi độ chính xác.
+                    model.prepare(ctx_id=0 if DEVICE == "cuda" else -1, det_size=(640, 640))
                     self._face_model = model
         return self._face_model
 
-    def detect_faces(self, frame) -> list:
+    def detect_faces(self, frame, max_num: int = 0) -> list:
         """Chạy insightface (model dùng chung) trên 1 frame BGR. Trả về list
         các Face object (bbox, det_score, normed_embedding) - CameraPipeline
-        so từng face với KnownFacesStore để nhận diện người quen/người lạ."""
+        so từng face với KnownFacesStore để nhận diện người quen/người lạ.
+
+        max_num: giới hạn số mặt XỬ LÝ (0 = không giới hạn). Cả detection lẫn
+        recognition per-face đều tốn thêm khi số mặt tăng (xem module
+        docstring), nên khi 1 frame có quá nhiều mặt (đám đông), giới hạn
+        này tránh việc cả frame bị kéo chậm vì phải nhận diện HẾT từng mặt.
+        insightface tự chọn max_num mặt LỚN NHẤT/gần tâm khung hình nhất để
+        giữ lại (ưu tiên người gần camera/đang nhìn thẳng, hợp lý cho use
+        case điểm danh/an ninh) - xem SCRFD.detect(), tham số metric='default'."""
         model = self._get_face_model()
         with self._face_call_lock, self._measure("face"):
-            return model.get(frame)
+            return model.get(frame, max_num=max_num)

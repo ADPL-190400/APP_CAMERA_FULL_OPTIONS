@@ -97,10 +97,15 @@ def send_mobile_incident(frame_bgr,details,type_id,camera_id): # pp in working a
 
 
 def send_mobile_employee(frame_bgr,employee_id, camera_id,now):
-    _, img_encoded = cv2.imencode('.png', frame_bgr)
+    # JPEG (khớp send_mobile_incident), KHÔNG dùng PNG - PNG không mất dữ
+    # liệu nên nặng hơn nhiều lần cho ảnh chụp thật (đặc biệt frame full-res
+    # từ camera IP ở Gate Kiosk), đã gặp lỗi thật "413 Request Entity Too
+    # Large" từ nginx phía backend khi gửi PNG.
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 70]
+    _, img_encoded = cv2.imencode('.jpg', frame_bgr, encode_param)
     img_bytes = io.BytesIO(img_encoded.tobytes())
     file = {
-            'image': ('employee.png', img_bytes, 'image/png')
+            'image': ('employee.jpg', img_bytes, 'image/jpeg')
         }
     
     now_utc = now.astimezone(timezone.utc)
@@ -119,46 +124,63 @@ def send_mobile_employee(frame_bgr,employee_id, camera_id,now):
     
     
 
-    # post incident 
+    # post attendance - PHẢI biết chắc thành công hay không (khác
+    # send_mobile_incident - chỉ là cảnh báo best-effort): nếu server từ
+    # chối, người gọi (gate_kiosk_page.py/face_attendance_page.py) cần biết
+    # để không âm thầm mất bản ghi chấm công - xem post_employee() bên dưới,
+    # cùng khuôn.
+    res = requests.post(get_url('employee-attendance'), data=employee_data, files=file, headers=headers, allow_redirects=False)
+    print("Method gửi_attendance:", res.request.method)
+    print("URL gửi:", res.request.url)
+    print("Status:", res.status_code)
+    print("Response:", res.text)
+
+    if not _response_ok(res) and res.status_code in (401, 403):
+        # Token có thể đã hết hạn - đăng nhập lại rồi thử lại đúng 1 lần.
+        get_api(user, pw)
+        _, img_encoded = cv2.imencode('.jpg', frame_bgr, encode_param)
+        file = {'image': ('employee.jpg', io.BytesIO(img_encoded.tobytes()), 'image/jpeg')}
+        res = requests.post(get_url('employee-attendance'), data=employee_data, files=file, headers=headers, allow_redirects=False)
+        print("Status (retry):", res.status_code)
+        print("Response (retry):", res.text)
+
+    if not _response_ok(res):
+        raise RuntimeError(f"Server rejected attendance data (HTTP {res.status_code}): {res.text}")
+
+
+def _post_employee_once(employee_data):
+    res = requests.post(get_url('employee'), data=employee_data, headers=headers, allow_redirects=False)
+    print("Method gửi_post_employee:", res.request.method)
+    print("URL gửi:", res.request.url)
+    print("Status:", res.status_code)
+    print("Response:", res.text)
+    return res
+
+
+def _response_ok(res) -> bool:
     try:
-        res = requests.post(get_url('employee-attendance'),data=employee_data,files=file ,headers=headers, allow_redirects=False)
-        print("Method gửi_attendance:", res.request.method)
-        print("URL gửi:", res.request.url)
-        print("Status:", res.status_code)
-        print("Response:", res.text)
-    except Exception as e:
-        print("Lỗi:", str(e))
-        
-        try: # sửa lại khi web ko trả về kq đung
-            get_api(user,pw)
-            res = requests.post(get_url('employee-attendance'),data=employee_data,files=file ,headers=headers, allow_redirects=False)
-            print("Method gửi_send_mobile_employee:", res.request.method)
-            print("URL gửi:", res.request.url)
-            print("Status:", res.status_code)
-            print("Response:", res.text)
-        except:
-            pass
+        return bool(res.json().get('success'))
+    except ValueError:
+        return False
 
 
 def post_employee(employee_data):
-    try:
-        res = requests.post(get_url('employee'),data=employee_data,headers=headers, allow_redirects=False)
-        
-        # print("Method gửi:", res.request.method)
-        # print("URL gửi:", res.request.url)
-        # print("Status:", res.status_code)
-        # print("Response:", res.text)
-    except Exception as e:
-        print("Lỗi:", str(e))
-        try: # sửa lại khi web ko trả về kq đung
-            get_api(user,pw)
-            res = requests.post(get_url('employee'),data=employee_data,headers=headers, allow_redirects=False)
-            # print("Method gửi_post_employee:", res.request.method)
-            # print("URL gửi:", res.request.url)
-            # print("Status:", res.status_code)
-            # print("Response:", res.text)
-        except:
-            pass
+    """POST 1 nhân viên (kèm identifier_code - embedding) lên backend. Khác
+    send_mobile_incident/send_mobile_employee (best-effort, lỗi không quan
+    trọng) - đăng ký nhân viên PHẢI biết chắc thành công hay không, vì
+    KnownFacesStore chỉ nhận diện được người vừa đăng ký nếu identifier_code
+    thực sự đã lưu trên backend. Raise RuntimeError khi server từ chối
+    (status lỗi hoặc success=false) - EnrollWorker (pages/face_attendance_page.py)
+    bắt lỗi này để báo đăng ký thất bại thay vì báo "thành công" sai."""
+    res = _post_employee_once(employee_data)
+
+    if not _response_ok(res) and res.status_code in (401, 403):
+        # Token có thể đã hết hạn - đăng nhập lại rồi thử lại đúng 1 lần.
+        get_api(user, pw)
+        res = _post_employee_once(employee_data)
+
+    if not _response_ok(res):
+        raise RuntimeError(f"Server rejected employee data (HTTP {res.status_code}): {res.text}")
 
 
 def get_employee():

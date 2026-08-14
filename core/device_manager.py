@@ -41,6 +41,7 @@ from core.models.camera_device import (
 from core.status_checker import StatusCheckWorker
 from core.camera_pipeline import CameraPipeline
 from core import device_store
+from ui.ui_menu.i18n import tr
 
 DEFAULT_STATUS_CHECK_INTERVAL_MS = 15_000  # 15 giây
 
@@ -215,7 +216,7 @@ class DeviceManager(QObject):
 
         source = device.display_source()
         if not source:
-            self.pipeline_error.emit(device_id, "Camera chưa cấu hình nguồn video (IP/Stream URL/USB index).")
+            self.pipeline_error.emit(device_id, tr("Camera has no video source configured (IP/Stream URL/USB index)."))
             return
 
         pipeline = CameraPipeline(

@@ -16,9 +16,14 @@
   <property name="styleSheet">
    <string notr="true">
 QMainWindow{
-	
+
 	border-image: url(ui/static/img/login.jpg);
-	
+	background-color: #ffffff;
+
+}
+
+QWidget#centralwidget{
+	background-color: transparent;
 }
 
 #widget{
@@ -26,17 +31,27 @@ QMainWindow{
 	border-radius: 5px;
 }
 
-Qlabel{
+QLabel{
+	background-color: transparent;
 	color:#767e89;
 }
 
-Qlabel#label{
+QLabel#label{
 color:#000;
 }
 
 QLineEdit{
+	background-color: #ffffff;
+	color: #333333;
 	border:none;
-	border-bottom:2px solid#cccccc;
+	border-bottom:2px solid #cccccc;
+	border-radius: 0px;
+	selection-background-color: #28a2a2;
+	selection-color: #ffffff;
+}
+
+QLineEdit:hover{
+	border-bottom:2px solid #28a2a2;
 }
 
 QLineEdit:focus{
@@ -51,12 +66,15 @@ QPushButton{
 	padding: 6px;
 }
 
-QPushButton:hover,
-QPushButton:clicked{
+QPushButton:hover{
 	background-color:#0b5ed7;
 	border: 2px solid #9ac3fe;
+}
 
-
+QPushButton:pressed{
+	background-color:#0b5ed7;
+	border: 2px solid #9ac3fe;
+	color: #fff;
 }
 
 
@@ -229,9 +247,9 @@ QToolButton:checked {
                   <string/>
                  </property>
                  <property name="icon">
-                  <iconset resource="resource.qrc">
-                   <normaloff>:/icon/static/icon/hide-password-16.png</normaloff>
-                   <normalon>:/icon/static/icon/show-password-3-16.png</normalon>:/icon/static/icon/hide-password-16.png</iconset>
+                  <iconset>
+                   <normaloff>static/icon/hide-password-16.png</normaloff>
+                   <normalon>static/icon/show-password-3-16.png</normalon>static/icon/hide-password-16.png</iconset>
                  </property>
                  <property name="checkable">
                   <bool>true</bool>

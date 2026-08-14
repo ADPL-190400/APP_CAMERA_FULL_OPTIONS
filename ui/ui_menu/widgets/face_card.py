@@ -11,6 +11,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout, QSizePolicy
 
+from ui.ui_menu.i18n import tr
+
 _THUMB_SIZE = 150
 
 
@@ -50,7 +52,7 @@ class FaceCard(QFrame):
         self._lbl_time.setProperty("cardRole", "faceTime")
         self._lbl_time.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._lbl_badge = QLabel("✓ Khớp" if matched else "?  Người lạ")
+        self._lbl_badge = QLabel(tr("✓ Match") if matched else tr("?  Stranger"))
         self._lbl_badge.setProperty("cardRole", "faceBadge")
         self._lbl_badge.setProperty("matched", matched)
         self._lbl_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)

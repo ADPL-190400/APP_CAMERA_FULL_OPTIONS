@@ -32,6 +32,126 @@ from core.models.camera_device import (
 )
 from ui.dialogs.roi_editor_dialog import ROIEditorDialog
 from ui.dialogs.trigger_rule_dialog import TriggerRuleDialog
+from ui.ui_menu.i18n import LanguageManager, tr
+
+_TR_TEXT_MAP = {
+    "lbl_camera_name": "Camera Name",
+    "lbl_camera_id": "Camera ID",
+    "lbl_vendor": "Vendor",
+    "lbl_ip_address": "IP Address",
+    "lbl_stream_url": "Stream URL",
+    "lbl_substream_url": "Substream URL",
+    "check_use_substream": "Prefer the substream",
+    "lbl_status": "Status",
+    "lbl_mac_address": "MAC Address",
+    "lbl_resolution": "Resolution",
+    "lbl_fps": "FPS",
+    "lbl_preview_title": "Camera Preview",
+    "btn_refresh_camera": "↻  Refresh",
+    "btn_test_connection": "Test Connection",
+    "btn_start_device": "▶  Start",
+    "btn_stop_device": "■  Stop",
+    "lbl_enable_ai": "Enable AI",
+    "lbl_ai_fps_limit": "AI FPS Limit",
+    "lbl_inference_quality": "Detection Quality",
+    "check_enable_counting": "Count people in/out  (requires drawing a Counting Line)",
+    "check_enable_occupancy": "Monitor current occupancy  (ROI recommended)",
+    "check_enable_ppe": "PPE monitoring  (requires drawing an ROI)",
+    "check_enable_fire": "Fire Detection",
+    "check_enable_fall": "Fall Detection",
+    "check_enable_face_recognition": "Face recognition - alert on strangers / recognize known people",
+    "btn_refresh_known_faces": "🔄  Refresh Known Faces",
+    "btn_open_pipeline_config": "⚙  Open Pipeline Config",
+    "lbl_roi_preview_placeholder": "Click \"Open ROI Editor…\" to draw ROI/Counting Line directly on the camera feed",
+    "btn_open_roi_editor": "✏  Open ROI Editor…",
+    "lbl_enable_trigger": "Enable Trigger",
+    "btn_add_trigger_rule": "＋  Add Rule",
+    "btn_edit_trigger_rule": "✏  Edit Rule",
+    "btn_delete_trigger_rule": "🗑  Delete Rule",
+    "lbl_trigger_note": "Double-click a rule to edit it in the Rule Editor dialog.",
+    "lbl_enable_recording": "Enable Recording",
+    "lbl_recording_mode": "Recording Mode",
+    "lbl_save_path": "Save Path",
+    "btn_browse_save_path": "Browse…",
+    "lbl_retention_days": "Retention (days)",
+    "btn_open_schedule_config": "📅  Schedule Config…",
+    "lbl_show_bbox": "Show Bounding Box",
+    "lbl_show_label": "Show Label",
+    "lbl_show_confidence": "Show Confidence",
+    "lbl_show_roi": "Show ROI",
+    "lbl_show_tracking_id": "Show Tracking ID",
+    "btn_open_overlay_settings": "🎨  Overlay Settings…",
+    "lbl_frame_queue_size": "Frame Queue Size",
+    "lbl_reconnect_timeout": "Reconnect Timeout (s)",
+    "lbl_decoder_backend": "Decoder Backend",
+    "lbl_hw_accel": "Hardware Acceleration",
+    "lbl_gpu_device": "GPU Device",
+    "btn_save": "💾  Save",
+    "btn_apply": "✔  Apply",
+    "btn_reset": "↺  Reset",
+    "btn_export_config": "↑  Export Config",
+    "btn_import_config": "↓  Import Config",
+}
+_TR_TITLE_MAP = {
+    "group_basic_identity": "Camera Identity",
+    "group_basic_connection": "Connection",
+    "group_basic_stream": "Stream Settings",
+    "group_ai_enable": "AI Processing",
+    "group_ai_features": "AI Features",
+    "group_roi_list": "Regions of Interest",
+    "group_counting_line": "Counting Line (count people in/out)",
+    "group_trigger_rules": "Trigger Rules",
+    "group_recording": "Recording Settings",
+    "group_overlay": "Overlay Visibility",
+    "group_adv_pipeline": "Pipeline",
+    "group_adv_hardware": "Hardware & Decoder",
+}
+_TR_TOOLTIP_MAP = {
+    "edit_camera_id": (
+        "App-generated internal ID used as the lookup key for this camera in DeviceManager - not editable, "
+        "and NOT the camera_id sent to the web server (see the \"MAC Address\" field below for that)."
+    ),
+    "edit_substream_url": (
+        "Low-resolution substream used for AI + live preview instead of the Stream URL - reduces bandwidth/"
+        "decode CPU, doesn't affect AI accuracy since frames are auto-resized to <=640px anyway. Leave empty "
+        "to use the Stream URL (mainstream) as before."
+    ),
+    "check_use_substream": (
+        "Uncheck to temporarily fall back to the Stream URL (mainstream) without deleting the saved "
+        "Substream URL."
+    ),
+    "edit_mac_address": (
+        "This is the actual camera_id sent to the web server (matches the camera already registered there "
+        "by MAC, DIFFERENT from the internal \"Camera ID\" above) - auto-filled when scanning ARP (IP camera), "
+        "or entered manually if scanning isn't possible / USB camera. Leave empty = events/attendance from "
+        "this camera won't be sent to the web."
+    ),
+    "combo_resolution": (
+        "Limits the maximum DISPLAY resolution (does not change the resolution AI uses for detection). If "
+        "the source camera's resolution is higher than the selected value, it will be downscaled before "
+        "display to reduce lag - choose 4K = no limit. For USB cameras, this also requests that the camera "
+        "capture at this exact resolution (requires Stop/Start to take effect); for IP/RTSP, the camera "
+        "server decides this and it can't be set here."
+    ),
+    "spin_fps": (
+        "Limits the DISPLAY frame rate (frames per second sent for viewing) - does not limit the AI "
+        "processing rate (see \"AI FPS Limit\" in the AI tab). Takes effect immediately, no need to Stop/Start."
+    ),
+    "combo_inference_quality": (
+        "Image size fed into the AI model (pose/PPE/fire/fall) - does not affect the display resolution. "
+        "Fast/Balanced run much smoother when AI runs on multiple cameras at once, at the cost of slightly "
+        "lower accuracy for small or distant people/objects."
+    ),
+    "list_roi": "View-only list - draw/edit/delete via the ROI Editor",
+}
+_TR_COMBO_ITEMS = {
+    "combo_vendor": ["Unknown", "Hikvision", "Dahua", "Axis", "Bosch", "Other"],
+    "combo_status": ["Online", "Offline", "Error"],
+    "combo_inference_quality": ["Fast (320px)", "Balanced (480px)", "Accurate (640px)"],
+    "combo_recording_mode": ["Continuous", "On Motion", "On Trigger", "Scheduled"],
+    "combo_gpu_device": ["GPU 0 (default)", "GPU 1", "CPU Fallback"],
+}
+_TR_TAB_TITLES = ["Basic", "AI", "ROI", "Trigger", "Recording", "Overlay", "Advanced"]
 
 
 class CameraConfigPage(QtWidgets.QWidget):
@@ -57,6 +177,47 @@ class CameraConfigPage(QtWidgets.QWidget):
         self._set_form_enabled(False)
         self.reload_sidebar()
 
+        self.retranslate_ui()
+        LanguageManager.instance().language_changed.connect(self.retranslate_ui)
+
+    # ------------------------------------------------------------------ #
+    # i18n
+    # ------------------------------------------------------------------ #
+    def retranslate_ui(self, _lang: str = "") -> None:
+        for attr, key in _TR_TEXT_MAP.items():
+            getattr(self, attr).setText(tr(key))
+        for attr, key in _TR_TITLE_MAP.items():
+            getattr(self, attr).setTitle(tr(key))
+        for attr, key in _TR_TOOLTIP_MAP.items():
+            getattr(self, attr).setToolTip(tr(key))
+        self.edit_search_camera.setPlaceholderText(tr("Search camera…"))
+        for attr, keys in _TR_COMBO_ITEMS.items():
+            combo = getattr(self, attr)
+            current = combo.currentIndex()
+            combo.blockSignals(True)
+            for i, key in enumerate(keys):
+                combo.setItemText(i, tr(key))
+            combo.blockSignals(False)
+            combo.setCurrentIndex(current)
+        for i, key in enumerate(_TR_TAB_TITLES):
+            self.tab_camera_config.setTabText(i, tr(key))
+        self.reload_sidebar()
+        # Trạng thái động phụ thuộc device đang chọn - vẽ lại nếu có.
+        if self.current_device_id:
+            device = self.device_manager.get_device(self.current_device_id)
+            if device is not None:
+                self.lbl_counting_line_status.setText(
+                    tr("Set: {value}").format(value=device.counting_line) if device.counting_line else tr("Not set")
+                )
+        else:
+            self.lbl_counting_line_status.setText(tr("Not set"))
+        self._on_known_faces_updated()
+        if self.btn_toggle_preview.isChecked():
+            self.btn_toggle_preview.setText(tr("■  Close Preview"))
+        else:
+            self.btn_toggle_preview.setText(tr("▶  Open Preview"))
+            self.lbl_preview_placeholder.setText(tr("No Preview"))
+
     # ------------------------------------------------------------------ #
     # Sidebar (danh sách camera bên trái)
     # ------------------------------------------------------------------ #
@@ -72,7 +233,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         for device in self.device_manager.all_devices():
             if keyword and keyword not in device.name.lower() and keyword not in device.ip_address.lower():
                 continue
-            item = QListWidgetItem(f"{device.name}   ·  {device.status.value}")
+            item = QListWidgetItem(tr("{name}   ·  {status}").format(name=device.name, status=tr(device.status.value)))
             item.setData(Qt.ItemDataRole.UserRole, device.id)
             self.list_camera_config.addItem(item)
             if device.id == self.current_device_id:
@@ -95,7 +256,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         device = self.device_manager.get_device(device_id)
         if device is None:
             return
-        self.combo_status.setCurrentText(device.status.value)
+        self._combo_set_canonical(self.combo_status, "combo_status", device.status.value)
         # Camera có thể được Stop từ device_management_page (không qua trang
         # này) -> nếu đang xem preview, pipeline không còn nữa thì phải tắt
         # theo, không thể tiếp tục "xem" 1 pipeline đã bị huỷ.
@@ -129,17 +290,37 @@ class CameraConfigPage(QtWidgets.QWidget):
         self.btn_reset.setEnabled(enabled)
         self.btn_export_config.setEnabled(enabled)
 
+    @staticmethod
+    def _combo_set_canonical(combo: QtWidgets.QComboBox, attr: str, value: str) -> None:
+        """Chọn item theo GIÁ TRỊ TIẾNG ANH GỐC (canonical, xem
+        _TR_COMBO_ITEMS) thay vì currentText() - text hiển thị của item đã bị
+        tr() dịch theo ngôn ngữ hiện tại nên KHÔNG còn khớp giá trị tiếng Anh
+        lưu trong CameraDevice (device.status.value, ai.inference_quality...).
+        Dùng index cố định (thứ tự _TR_COMBO_ITEMS khớp đúng thứ tự item
+        trong .ui) làm cầu nối, tách biệt hoàn toàn "giá trị lưu" khỏi
+        "text hiển thị hiện tại" - bug đã gặp: đổi ngôn ngữ xong Save lại thì
+        DeviceStatus()/parse_inference_imgsz() nhận nhầm chuỗi đã dịch."""
+        keys = _TR_COMBO_ITEMS[attr]
+        index = keys.index(value) if value in keys else 0
+        combo.setCurrentIndex(index)
+
+    @staticmethod
+    def _combo_get_canonical(combo: QtWidgets.QComboBox, attr: str) -> str:
+        keys = _TR_COMBO_ITEMS[attr]
+        index = combo.currentIndex()
+        return keys[index] if 0 <= index < len(keys) else combo.currentText()
+
     def _apply_device_to_form(self, device: CameraDevice) -> None:
         # --- Basic ---
         self.edit_camera_name.setText(device.name)
         self.edit_camera_id.setText(device.id)
-        self.combo_vendor.setCurrentText(device.vendor)
+        self._combo_set_canonical(self.combo_vendor, "combo_vendor", device.vendor)
         self.edit_ip_address.setText(device.ip_address)
         self.edit_mac_address.setText(device.mac_address)
         self.edit_stream_url.setText(device.stream_url)
         self.edit_substream_url.setText(device.substream_url)
         self.check_use_substream.setChecked(device.use_substream)
-        self.combo_status.setCurrentText(device.status.value)
+        self._combo_set_canonical(self.combo_status, "combo_status", device.status.value)
         self.combo_resolution.setCurrentText(device.resolution)
         self.spin_fps.setValue(device.fps)
         self.lbl_ai_summary.clear()
@@ -147,7 +328,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         # --- AI ---
         self.check_enable_ai.setChecked(device.ai.enabled)
         self.spin_ai_fps_limit.setValue(device.ai.ai_fps_limit)
-        self.combo_inference_quality.setCurrentText(device.ai.inference_quality)
+        self._combo_set_canonical(self.combo_inference_quality, "combo_inference_quality", device.ai.inference_quality)
         self.check_enable_counting.setChecked(device.ai.enable_counting)
         self.check_enable_occupancy.setChecked(device.ai.enable_occupancy)
         self.check_enable_ppe.setChecked(device.ai.enable_ppe)
@@ -160,7 +341,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         for roi in device.roi_regions:
             self.list_roi.addItem(f"{roi.name}   [{roi.points}]")
         self.lbl_counting_line_status.setText(
-            f"Đã đặt: {device.counting_line}" if device.counting_line else "Chưa đặt"
+            tr("Set: {value}").format(value=device.counting_line) if device.counting_line else tr("Not set")
         )
 
         # --- Trigger ---
@@ -170,7 +351,7 @@ class CameraConfigPage(QtWidgets.QWidget):
 
         # --- Recording ---
         self.check_enable_recording.setChecked(device.recording.enabled)
-        self.combo_recording_mode.setCurrentText(device.recording.mode)
+        self._combo_set_canonical(self.combo_recording_mode, "combo_recording_mode", device.recording.mode)
         self.edit_save_path.setText(device.recording.save_path)
         self.spin_retention_days.setValue(device.recording.retention_days)
 
@@ -186,7 +367,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         self.spin_reconnect_timeout.setValue(device.advanced.reconnect_timeout)
         self.combo_decoder_backend.setCurrentText(device.advanced.decoder_backend)
         self.check_hw_accel.setChecked(device.advanced.hw_accel)
-        self.combo_gpu_device.setCurrentText(device.advanced.gpu_device)
+        self._combo_set_canonical(self.combo_gpu_device, "combo_gpu_device", device.advanced.gpu_device)
 
     def _collect_form_updates(self) -> dict:
         """Đọc toàn bộ form -> dict field-name/value để gọi
@@ -195,19 +376,19 @@ class CameraConfigPage(QtWidgets.QWidget):
         Add/Edit/Delete (hoặc qua ROI Editor), không đợi Save."""
         return dict(
             name=self.edit_camera_name.text().strip(),
-            vendor=self.combo_vendor.currentText(),
+            vendor=self._combo_get_canonical(self.combo_vendor, "combo_vendor"),
             ip_address=self.edit_ip_address.text().strip(),
             mac_address=self.edit_mac_address.text().strip(),
             stream_url=self.edit_stream_url.text().strip(),
             substream_url=self.edit_substream_url.text().strip(),
             use_substream=self.check_use_substream.isChecked(),
-            status=DeviceStatus(self.combo_status.currentText()),
+            status=DeviceStatus(self._combo_get_canonical(self.combo_status, "combo_status")),
             resolution=self.combo_resolution.currentText(),
             fps=self.spin_fps.value(),
             ai=AIConfig(
                 enabled=self.check_enable_ai.isChecked(),
                 ai_fps_limit=self.spin_ai_fps_limit.value(),
-                inference_quality=self.combo_inference_quality.currentText(),
+                inference_quality=self._combo_get_canonical(self.combo_inference_quality, "combo_inference_quality"),
                 enable_counting=self.check_enable_counting.isChecked(),
                 enable_occupancy=self.check_enable_occupancy.isChecked(),
                 enable_ppe=self.check_enable_ppe.isChecked(),
@@ -217,7 +398,7 @@ class CameraConfigPage(QtWidgets.QWidget):
             ),
             recording=RecordingConfig(
                 enabled=self.check_enable_recording.isChecked(),
-                mode=self.combo_recording_mode.currentText(),
+                mode=self._combo_get_canonical(self.combo_recording_mode, "combo_recording_mode"),
                 save_path=self.edit_save_path.text().strip(),
                 retention_days=self.spin_retention_days.value(),
             ),
@@ -233,7 +414,7 @@ class CameraConfigPage(QtWidgets.QWidget):
                 reconnect_timeout=self.spin_reconnect_timeout.value(),
                 decoder_backend=self.combo_decoder_backend.currentText(),
                 hw_accel=self.check_hw_accel.isChecked(),
-                gpu_device=self.combo_gpu_device.currentText(),
+                gpu_device=self._combo_get_canonical(self.combo_gpu_device, "combo_gpu_device"),
             ),
         )
 
@@ -249,7 +430,7 @@ class CameraConfigPage(QtWidgets.QWidget):
 
     def _on_save(self) -> None:
         if self._apply_form_to_device():
-            QMessageBox.information(self, "Đã lưu", "Đã lưu cấu hình camera.")
+            QMessageBox.information(self, tr("Saved"), tr("Camera configuration saved."))
 
     def _on_apply(self) -> None:
         # Apply giống Save nhưng không hiện thông báo, dùng khi muốn áp cấu
@@ -258,10 +439,10 @@ class CameraConfigPage(QtWidgets.QWidget):
 
     def _apply_form_to_device(self) -> bool:
         if not self.current_device_id:
-            QMessageBox.warning(self, "Chưa chọn camera", "Vui lòng chọn 1 camera ở danh sách bên trái.")
+            QMessageBox.warning(self, tr("No camera selected"), tr("Please select a camera from the list on the left."))
             return False
         if not self.edit_camera_name.text().strip():
-            QMessageBox.warning(self, "Thiếu thông tin", "Camera Name không được để trống.")
+            QMessageBox.warning(self, tr("Missing information"), tr("Camera Name cannot be empty."))
             return False
 
         updates = self._collect_form_updates()
@@ -294,21 +475,23 @@ class CameraConfigPage(QtWidgets.QWidget):
         không chạy cho tới khi cấu hình đủ qua ROI Editor."""
         missing = []
         if ai.enable_counting and not device.counting_line:
-            missing.append("Đếm người vào/ra cần vẽ Counting Line (tab ROI).")
+            missing.append(tr("Count In/Out requires drawing a Counting Line (ROI tab)."))
         if ai.enable_occupancy and not device.roi_regions:
-            missing.append("Occupancy cần vẽ ít nhất 1 ROI (tab ROI).")
+            missing.append(tr("Occupancy requires at least 1 ROI (ROI tab)."))
         if ai.enable_ppe and not device.roi_regions:
-            missing.append("PPE cần vẽ ít nhất 1 ROI (tab ROI).")
+            missing.append(tr("PPE requires at least 1 ROI (ROI tab)."))
         if ai.enable_face_recognition and KnownFacesStore.instance().count == 0:
             missing.append(
-                "Face Recognition chưa có known faces - mọi khuôn mặt sẽ bị coi là "
-                "'Stranger' cho tới khi bấm 'Refresh Known Faces' thành công."
+                tr(
+                    "Face Recognition has no known faces yet - every face will be treated "
+                    "as 'Stranger' until 'Refresh Known Faces' succeeds."
+                )
             )
         if missing:
             QMessageBox.warning(
                 self,
-                "Thiếu cấu hình ROI/Line",
-                "Đã lưu, nhưng các tính năng sau sẽ CHƯA chạy cho tới khi cấu hình đủ:\n\n"
+                tr("Missing ROI/Line configuration"),
+                tr("Saved, but the following features will NOT run until fully configured:\n\n")
                 + "\n".join(f"• {m}" for m in missing),
             )
 
@@ -325,16 +508,16 @@ class CameraConfigPage(QtWidgets.QWidget):
             return
 
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export Config", f"{device.name}.json", "JSON Files (*.json)"
+            self, tr("Export Config"), f"{device.name}.json", "JSON Files (*.json)"
         )
         if not path:
             return
         with open(path, "w", encoding="utf-8") as f:
             json.dump(device.to_dict(), f, ensure_ascii=False, indent=2)
-        QMessageBox.information(self, "Export Config", f"Đã xuất cấu hình ra:\n{path}")
+        QMessageBox.information(self, tr("Export Config"), tr("Configuration exported to:\n{path}").format(path=path))
 
     def _on_import_config(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import Config", "", "JSON Files (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("Import Config"), "", "JSON Files (*.json)")
         if not path:
             return
 
@@ -343,7 +526,7 @@ class CameraConfigPage(QtWidgets.QWidget):
                 raw = json.load(f)
             imported = CameraDevice.from_dict(raw)
         except (json.JSONDecodeError, OSError, KeyError, ValueError, TypeError) as exc:
-            QMessageBox.critical(self, "Import Config", f"File cấu hình không hợp lệ:\n{exc}")
+            QMessageBox.critical(self, tr("Import Config"), tr("Invalid configuration file:\n{exc}").format(exc=exc))
             return
 
         if self.current_device_id:
@@ -357,12 +540,12 @@ class CameraConfigPage(QtWidgets.QWidget):
             }
             self.device_manager.update_device(self.current_device_id, **updates)
             self.load_device(self.current_device_id)
-            QMessageBox.information(self, "Import Config", "Đã áp cấu hình vào camera đang chọn.")
+            QMessageBox.information(self, tr("Import Config"), tr("Configuration applied to the selected camera."))
         else:
             # Không chọn camera nào -> import thành 1 camera mới.
             new_id = self.device_manager.add_device(imported)
             self.load_device(new_id)
-            QMessageBox.information(self, "Import Config", "Đã tạo camera mới từ file cấu hình.")
+            QMessageBox.information(self, tr("Import Config"), tr("New camera created from the configuration file."))
 
     # ------------------------------------------------------------------ #
     # Tab Basic
@@ -376,7 +559,7 @@ class CameraConfigPage(QtWidgets.QWidget):
     def _on_test_connection(self) -> None:
         ip = self.edit_ip_address.text().strip()
         if not ip:
-            QMessageBox.warning(self, "Test Connection", "Vui lòng nhập IP Address trước.")
+            QMessageBox.warning(self, tr("Test Connection"), tr("Please enter an IP Address first."))
             return
 
         self.setCursor(Qt.CursorShape.WaitCursor)
@@ -386,9 +569,9 @@ class CameraConfigPage(QtWidgets.QWidget):
             self.unsetCursor()
 
         if reachable:
-            QMessageBox.information(self, "Test Connection", f"Kết nối tới {ip} thành công.")
+            QMessageBox.information(self, tr("Test Connection"), tr("Successfully connected to {ip}.").format(ip=ip))
         else:
-            QMessageBox.warning(self, "Test Connection", f"Không thể kết nối tới {ip}.")
+            QMessageBox.warning(self, tr("Test Connection"), tr("Could not connect to {ip}.").format(ip=ip))
 
     def _on_start_device(self) -> None:
         """Start = cho camera này chạy NỀN (capture liên tục + AI nếu có bật)
@@ -418,23 +601,23 @@ class CameraConfigPage(QtWidgets.QWidget):
         device = self._current_device()
         if device is None or not self.device_manager.subscribe_preview(device.id):
             QMessageBox.warning(
-                self, "Camera Preview", "Vui lòng bấm Start camera trước khi xem preview."
+                self, tr("Camera Preview"), tr("Please click Start on the camera before viewing the preview.")
             )
             self.btn_toggle_preview.blockSignals(True)
             self.btn_toggle_preview.setChecked(False)
             self.btn_toggle_preview.blockSignals(False)
             return
         self._preview_active = True
-        self.btn_toggle_preview.setText("■  Close Preview")
-        self.lbl_preview_placeholder.setText("Đang kết nối...")
+        self.btn_toggle_preview.setText(tr("■  Close Preview"))
+        self.lbl_preview_placeholder.setText(tr("Connecting..."))
 
     def _close_preview(self) -> None:
         if self._preview_active and self.current_device_id:
             self.device_manager.unsubscribe_preview(self.current_device_id)
         self._preview_active = False
-        self.btn_toggle_preview.setText("▶  Open Preview")
+        self.btn_toggle_preview.setText(tr("▶  Open Preview"))
         self.lbl_preview_placeholder.setPixmap(QPixmap())
-        self.lbl_preview_placeholder.setText("No Preview")
+        self.lbl_preview_placeholder.setText(tr("No Preview"))
 
     def _on_preview_frame(self, device_id: str, image: QImage) -> None:
         if not self._preview_active or device_id != self.current_device_id:
@@ -451,7 +634,7 @@ class CameraConfigPage(QtWidgets.QWidget):
     def _on_preview_error(self, device_id: str, message: str) -> None:
         if not self._preview_active or device_id != self.current_device_id:
             return
-        self.lbl_preview_placeholder.setText(f"Preview error:\n{message}")
+        self.lbl_preview_placeholder.setText(tr("Preview error:\n{message}").format(message=message))
         self.btn_toggle_preview.setChecked(False)
 
     def _on_ai_result(self, device_id: str, result: dict) -> None:
@@ -461,23 +644,23 @@ class CameraConfigPage(QtWidgets.QWidget):
         if device_id != self.current_device_id:
             return
         parts = [
-            f"Người: {result.get('num_people', 0)}",
-            f"Vào: {result.get('num_in', 0)}",
-            f"Ra: {result.get('num_out', 0)}",
+            tr("People: {n}").format(n=result.get('num_people', 0)),
+            tr("In: {n}").format(n=result.get('num_in', 0)),
+            tr("Out: {n}").format(n=result.get('num_out', 0)),
         ]
         known_faces = result.get("known_faces") or []
         if known_faces:
-            parts.append(f"Nhận diện: {', '.join(known_faces)}")
+            parts.append(tr("Recognized: {names}").format(names=', '.join(known_faces)))
 
         alerts = []
         if result.get("ppe_violation"):
-            alerts.append("⚠ PPE VI PHẠM")
+            alerts.append(tr("⚠ PPE VIOLATION"))
         if result.get("fire_alert"):
-            alerts.append("🔥 CHÁY")
+            alerts.append(tr("🔥 FIRE"))
         if result.get("fall_alert"):
-            alerts.append("🚨 TÉ NGÃ")
+            alerts.append(tr("🚨 FALL"))
         if result.get("stranger_alert"):
-            alerts.append("🧑‍❓ NGƯỜI LẠ")
+            alerts.append(tr("🧑‍❓ STRANGER"))
 
         text = "   ".join(parts)
         if alerts:
@@ -499,14 +682,14 @@ class CameraConfigPage(QtWidgets.QWidget):
     def _on_known_faces_updated(self) -> None:
         store = KnownFacesStore.instance()
         if store.last_error:
-            self.lbl_known_faces_status.setText(f"Known faces: lỗi tải ({store.last_error})")
+            self.lbl_known_faces_status.setText(tr("Known faces: load error ({error})").format(error=store.last_error))
         else:
-            self.lbl_known_faces_status.setText(f"Known faces: {store.count} người")
+            self.lbl_known_faces_status.setText(tr("Known faces: {n} people").format(n=store.count))
 
     def _on_open_pipeline_config(self) -> None:
         # TODO: mở dialog cấu hình pipeline AI chi tiết (thứ tự các bước xử lý).
         QMessageBox.information(
-            self, "Pipeline Config", "TODO: mở dialog cấu hình pipeline AI chi tiết."
+            self, tr("Pipeline Config"), tr("TODO: open detailed AI pipeline configuration dialog.")
         )
 
     # ------------------------------------------------------------------ #
@@ -523,7 +706,7 @@ class CameraConfigPage(QtWidgets.QWidget):
     def _on_open_roi_editor(self) -> None:
         device = self._current_device()
         if device is None:
-            QMessageBox.warning(self, "ROI Editor", "Vui lòng chọn 1 camera trước.")
+            QMessageBox.warning(self, tr("ROI Editor"), tr("Please select a camera first."))
             return
         dialog = ROIEditorDialog(self, device, self.device_manager)
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
@@ -546,7 +729,7 @@ class CameraConfigPage(QtWidgets.QWidget):
     def _on_add_trigger_rule(self) -> None:
         device = self._current_device()
         if device is None:
-            QMessageBox.warning(self, "Trigger Rule", "Vui lòng chọn 1 camera trước.")
+            QMessageBox.warning(self, tr("Trigger Rule"), tr("Please select a camera first."))
             return
         dialog = TriggerRuleDialog(self)
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
@@ -569,7 +752,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         device = self._current_device()
         row = self.list_trigger_rules.currentRow()
         if device is None or row < 0 or row >= len(device.trigger_rules):
-            QMessageBox.warning(self, "Trigger Rule", "Vui lòng chọn 1 rule trong danh sách để xoá.")
+            QMessageBox.warning(self, tr("Trigger Rule"), tr("Please select a rule from the list to delete."))
             return
         del device.trigger_rules[row]
         self.device_manager.update_device(device.id, trigger_rules=device.trigger_rules)
@@ -583,14 +766,14 @@ class CameraConfigPage(QtWidgets.QWidget):
         self.btn_open_schedule_config.clicked.connect(self._on_open_schedule_config)
 
     def _on_browse_save_path(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu video")
+        folder = QFileDialog.getExistingDirectory(self, tr("Select video save folder"))
         if folder:
             self.edit_save_path.setText(folder)
 
     def _on_open_schedule_config(self) -> None:
         # TODO: mở dialog cấu hình lịch ghi hình chi tiết (theo giờ/ngày trong tuần).
         QMessageBox.information(
-            self, "Schedule Config", "TODO: mở dialog cấu hình lịch ghi hình chi tiết."
+            self, tr("Schedule Config"), tr("TODO: open detailed recording schedule configuration dialog.")
         )
 
     # ------------------------------------------------------------------ #
@@ -602,5 +785,5 @@ class CameraConfigPage(QtWidgets.QWidget):
     def _on_open_overlay_settings(self) -> None:
         # TODO: mở dialog chọn màu/độ dày viền/font cho từng loại overlay.
         QMessageBox.information(
-            self, "Overlay Settings", "TODO: mở dialog cấu hình chi tiết màu sắc/kiểu overlay."
+            self, tr("Overlay Settings"), tr("TODO: open detailed overlay color/style configuration dialog.")
         )

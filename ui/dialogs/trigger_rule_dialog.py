@@ -4,26 +4,27 @@ from __future__ import annotations
 from PyQt6 import QtWidgets
 
 from core.models.camera_device import TriggerRule
+from ui.ui_menu.i18n import tr
 
 
 class TriggerRuleDialog(QtWidgets.QDialog):
     def __init__(self, parent=None, rule: TriggerRule | None = None):
         super().__init__(parent)
-        self.setWindowTitle("Trigger Rule")
+        self.setWindowTitle(tr("Trigger Rule"))
         self.setMinimumWidth(420)
 
         layout = QtWidgets.QFormLayout(self)
 
         self.edit_name = QtWidgets.QLineEdit(rule.name if rule else "Rule")
-        layout.addRow("Tên rule", self.edit_name)
+        layout.addRow(tr("Rule Name"), self.edit_name)
 
         self.edit_condition = QtWidgets.QLineEdit(rule.condition if rule else "")
         self.edit_condition.setPlaceholderText("e.g. person count > 0 in ROI-1")
-        layout.addRow("Điều kiện (IF)", self.edit_condition)
+        layout.addRow(tr("Condition (IF)"), self.edit_condition)
 
         self.edit_action = QtWidgets.QLineEdit(rule.action if rule else "")
         self.edit_action.setPlaceholderText("e.g. send notification + record 10s")
-        layout.addRow("Hành động (THEN)", self.edit_action)
+        layout.addRow(tr("Action (THEN)"), self.edit_action)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok

@@ -110,9 +110,18 @@
        </layout>
       </item>
       <item>
-       <widget class="QLabel" name="lbl_user">
+       <widget class="QPushButton" name="btn_user_menu">
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
+        </property>
+        <property name="toolTip">
+         <string>Account</string>
+        </property>
         <property name="text">
-         <string>Admin</string>
+         <string>USER</string>
+        </property>
+        <property name="flat">
+         <bool>true</bool>
         </property>
        </widget>
       </item>
@@ -124,12 +133,15 @@
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="btn_notify">
+       <widget class="QPushButton" name="btn_language">
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
+        </property>
         <property name="toolTip">
-         <string>Notifications</string>
+         <string>Change Language</string>
         </property>
         <property name="text">
-         <string>🔔</string>
+         <string>🌐 EN</string>
         </property>
        </widget>
       </item>
@@ -182,33 +194,6 @@
         <property name="bottomMargin">
          <number>0</number>
         </property>
-        <item>
-         <layout class="QVBoxLayout" name="vLayout_logo">
-          <property name="leftMargin">
-           <number>8</number>
-          </property>
-          <property name="topMargin">
-           <number>10</number>
-          </property>
-          <property name="bottomMargin">
-           <number>10</number>
-          </property>
-          <item>
-           <widget class="QLabel" name="lbl_logo">
-            <property name="text">
-             <string>⬡ CAMVISION</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="lbl_logo_sub">
-            <property name="text">
-             <string>AI SURVEILLANCE PLATFORM</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
         <item>
          <widget class="QLabel" name="lbl_section_main">
           <property name="text">
@@ -267,7 +252,7 @@
            <string notr="true">text-align: left;</string>
           </property>
           <property name="text">
-           <string>🖧 Device Management</string>
+           <string>⌬  Device Management</string>
           </property>
           <property name="checkable">
            <bool>true</bool>
@@ -281,6 +266,19 @@
           </property>
           <property name="text">
            <string>⚙  Camera Config</string>
+          </property>
+          <property name="checkable">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_nav_settings">
+          <property name="styleSheet">
+           <string notr="true">text-align: left;</string>
+          </property>
+          <property name="text">
+           <string>🎚️  AI Setting</string>
           </property>
           <property name="checkable">
            <bool>true</bool>
@@ -365,39 +363,6 @@
            </size>
           </property>
          </spacer>
-        </item>
-        <item>
-         <layout class="QVBoxLayout" name="vLayout_sidebar_bottom">
-          <property name="spacing">
-           <number>2</number>
-          </property>
-          <property name="topMargin">
-           <number>8</number>
-          </property>
-          <property name="bottomMargin">
-           <number>8</number>
-          </property>
-          <item>
-           <widget class="QPushButton" name="btn_nav_settings">
-            <property name="text">
-             <string>  ⚙  Settings</string>
-            </property>
-            <property name="checkable">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="lbl_version">
-            <property name="text">
-             <string>v2.5.0  •  Build 20250714</string>
-            </property>
-            <property name="alignment">
-             <set>Qt::AlignCenter</set>
-            </property>
-           </widget>
-          </item>
-         </layout>
         </item>
        </layout>
       </item>

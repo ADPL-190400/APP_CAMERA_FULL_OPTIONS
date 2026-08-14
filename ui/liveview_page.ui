@@ -69,7 +69,7 @@
      <item>
       <widget class="QPushButton" name="btn_grid_1x1">
        <property name="toolTip">
-        <string>1 column × 1 row  (xem 1 camera)</string>
+        <string>1 column × 1 row  (view 1 camera)</string>
        </property>
        <property name="text">
         <string>⊞ 1×1</string>
@@ -121,23 +121,6 @@
        </property>
       </widget>
      </item>
-     <item>
-      <widget class="QLabel" name="lbl_sep_toolbar">
-       <property name="text">
-        <string>|</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="btn_record_all">
-       <property name="text">
-        <string>⏺ Record All</string>
-       </property>
-       <property name="checkable">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
     </layout>
    </item>
    <item>
@@ -160,8 +143,8 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>69</width>
-         <height>816</height>
+         <width>68</width>
+         <height>670</height>
         </rect>
        </property>
       </widget>
@@ -186,7 +169,7 @@
        <item>
         <widget class="QLabel" name="lbl_panel_section_running">
          <property name="text">
-          <string>RUNNING CAMERAS (chọn để hiện hình)</string>
+          <string>DISPLAY CAMERAS</string>
          </property>
         </widget>
        </item>
@@ -212,84 +195,6 @@
        </item>
        <item>
         <widget class="QListWidget" name="list_alarms"/>
-       </item>
-       <item>
-        <widget class="QLabel" name="lbl_panel_title">
-         <property name="text">
-          <string>Quick Camera Options</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <layout class="QVBoxLayout" name="vLayout_quickCtrl">
-         <property name="spacing">
-          <number>8</number>
-         </property>
-         <property name="leftMargin">
-          <number>8</number>
-         </property>
-         <property name="topMargin">
-          <number>8</number>
-         </property>
-         <property name="rightMargin">
-          <number>8</number>
-         </property>
-         <property name="bottomMargin">
-          <number>8</number>
-         </property>
-         <item>
-          <widget class="QLabel" name="lbl_quick_cam_select">
-           <property name="text">
-            <string>Target Camera:</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QComboBox" name="combo_quick_cam">
-           <item>
-            <property name="text">
-             <string>CAM-01 (Active)</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>CAM-02</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>CAM-03</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>CAM-04</string>
-            </property>
-           </item>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_quick_ai_toggle">
-           <property name="text">
-            <string>Toggle AI Engine</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_quick_rec_toggle">
-           <property name="text">
-            <string>Toggle Manual Rec</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_quick_alarm_clear">
-           <property name="text">
-            <string>Clear Active Alarms</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
        </item>
        <item>
         <spacer>
