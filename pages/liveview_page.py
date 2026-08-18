@@ -284,6 +284,16 @@ class LiveViewPage(QtWidgets.QWidget):
     # ------------------------------------------------------------------ #
     def _log_alarms(self, device_id: str, result: dict) -> None:
         for key, label in _ALARM_KINDS:
+            if key == "stranger_alert":
+                # Dedup theo TỪNG track_id riêng (không phải chỉ theo
+                # device_id+key như PPE/Fire/Fall/Overcrowding) - 2 người lạ
+                # khác nhau xuất hiện gần nhau về thời gian phải ra 2 dòng
+                # log riêng, không dồn chung thành 1 (đồng bộ với Event Log -
+                # xem CameraPipeline._capture_face_events).
+                for track_id in result.get("stranger_track_ids", []):
+                    if self._alarm_dedup.is_new_occurrence((device_id, key, track_id)):
+                        self._append_log(self.list_alarms, device_id, tr(label), is_alarm=True)
+                continue
             if result.get(key) and self._alarm_dedup.is_new_occurrence((device_id, key)):
                 self._append_log(self.list_alarms, device_id, tr(label), is_alarm=True)
 

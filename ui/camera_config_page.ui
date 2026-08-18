@@ -747,6 +747,47 @@
                    </widget>
                   </item>
                   <item>
+                   <layout class="QHBoxLayout" name="layout_stranger_repeat_mode">
+                    <item>
+                     <widget class="QLabel" name="lbl_stranger_repeat_mode">
+                      <property name="text">
+                       <string>Repeat Stranger alert</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QComboBox" name="combo_stranger_repeat_mode">
+                      <property name="toolTip">
+                       <string>How to handle the SAME lingering stranger being seen again after briefly turning away/being partly hidden. "Notify once" only alerts the first time until they leave the frame entirely. "Repeat after grace period" alerts again if they go quiet for a while and get reconfirmed - same behavior as PPE/Fire/Fall/Overcrowding.</string>
+                      </property>
+                      <item>
+                       <property name="text">
+                        <string>Notify once per visit</string>
+                       </property>
+                      </item>
+                      <item>
+                       <property name="text">
+                        <string>Repeat after grace period</string>
+                       </property>
+                      </item>
+                     </widget>
+                    </item>
+                    <item>
+                     <spacer name="spacer_stranger_repeat_mode">
+                      <property name="orientation">
+                       <enum>Qt::Horizontal</enum>
+                      </property>
+                      <property name="sizeHint" stdset="0">
+                       <size>
+                        <width>40</width>
+                        <height>20</height>
+                       </size>
+                      </property>
+                     </spacer>
+                    </item>
+                   </layout>
+                  </item>
+                  <item>
                    <layout class="QHBoxLayout" name="layout_known_faces">
                     <item>
                      <widget class="QPushButton" name="btn_refresh_known_faces">

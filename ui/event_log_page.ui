@@ -94,6 +94,11 @@
        </item>
        <item>
         <property name="text">
+         <string>Check-out</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
          <string>Overcrowding</string>
         </property>
        </item>

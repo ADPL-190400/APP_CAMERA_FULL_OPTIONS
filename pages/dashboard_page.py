@@ -272,6 +272,15 @@ class DashboardPage(QtWidgets.QWidget):
         name = device.name if device else device_id
 
         for key, label in _ALARM_KINDS:
+            if key == "stranger_alert":
+                # Dedup theo TỪNG track_id riêng - 2 người lạ khác nhau
+                # xuất hiện gần nhau về thời gian phải ra 2 dòng riêng,
+                # không dồn chung 1 dòng (đồng bộ với Event Log - xem
+                # CameraPipeline._capture_face_events).
+                for track_id in result.get("stranger_track_ids", []):
+                    if self._alarm_dedup.is_new_occurrence((device_id, key, track_id)):
+                        self._append_event("Alarms", tr("{name}: {label}").format(name=name, label=tr(label)))
+                continue
             if result.get(key) and self._alarm_dedup.is_new_occurrence((device_id, key)):
                 self._append_event("Alarms", tr("{name}: {label}").format(name=name, label=tr(label)))
 

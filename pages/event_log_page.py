@@ -55,7 +55,8 @@ _TIME_FILTER_VALUES: list[timedelta | None] = [
 ]
 
 _KIND_FILTER_KEYS = [
-    "All types", "PPE Violation", "Fire / Smoke", "Fall", "Stranger", "Check-in", "Overcrowding", "Recognized",
+    "All types", "PPE Violation", "Fire / Smoke", "Fall", "Stranger", "Check-in", "Check-out", "Overcrowding",
+    "Recognized",
 ]
 _KIND_FILTER_VALUES: list[EventKind | None] = [
     None,
@@ -64,6 +65,7 @@ _KIND_FILTER_VALUES: list[EventKind | None] = [
     EventKind.FALL_ALERT,
     EventKind.STRANGER_ALERT,
     EventKind.FACE_CHECKIN,
+    EventKind.FACE_CHECKOUT,
     EventKind.OCCUPANCY_ALERT,
     EventKind.FACE_RECOGNIZED,
 ]

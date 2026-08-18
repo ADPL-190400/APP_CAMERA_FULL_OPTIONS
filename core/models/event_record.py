@@ -1,8 +1,9 @@
 """
 Model dữ liệu cho 1 sự kiện cảnh báo (Event Log) - ppe/fire/fall/stranger/
-face_checkin/face_recognized/occupancy, mỗi sự kiện kèm 1 ảnh bằng chứng
-(full frame lúc alert được xác nhận, RIÊNG stranger/face_recognized dùng ảnh
-crop khuôn mặt - xem CameraPipeline._capture_face_events).
+face_checkin/face_checkout/face_recognized/occupancy, mỗi sự kiện kèm 1 ảnh
+bằng chứng (full frame lúc alert được xác nhận, RIÊNG stranger/
+face_recognized/face_checkin/face_checkout dùng ảnh crop khuôn mặt - xem
+CameraPipeline._capture_face_events/pages/gate_kiosk_page.py).
 """
 from __future__ import annotations
 
@@ -16,7 +17,12 @@ class EventKind(str, Enum):
     FIRE_ALERT = "fire_alert"
     FALL_ALERT = "fall_alert"
     STRANGER_ALERT = "stranger_alert"
-    FACE_CHECKIN = "face_checkin"  # FaceApp nhận diện người quen - xem pages/face_attendance_page.py
+    FACE_CHECKIN = "face_checkin"  # FaceApp điểm danh VÀO/nhận diện người quen - xem pages/face_attendance_page.py
+    # Gate Kiosk cổng RA (direction="out" - pages/gate_kiosk_page.py) - TÁCH
+    # RIÊNG khỏi FACE_CHECKIN (cổng vào) để cột "Event Type" ở Event Log
+    # phân biệt được đúng hướng, không phải đoán qua tên camera. Face App
+    # (kiosk 1 hướng duy nhất, không có khái niệm vào/ra) không dùng kind này.
+    FACE_CHECKOUT = "face_checkout"
     OCCUPANCY_ALERT = "occupancy_alert"  # vượt ngưỡng số người (AIConfig.occupancy_threshold)
     # Nhận diện được 1 người QUEN ở Live View/Dashboard (core/camera_pipeline.py -
     # camera bật "Face recognition" ở tab AI, KHÁC FACE_CHECKIN vốn là hành
@@ -33,6 +39,7 @@ EVENT_KIND_LABELS: dict[EventKind, str] = {
     EventKind.FALL_ALERT: "Fall",
     EventKind.STRANGER_ALERT: "Stranger",
     EventKind.FACE_CHECKIN: "Check-in",
+    EventKind.FACE_CHECKOUT: "Check-out",
     EventKind.OCCUPANCY_ALERT: "Overcrowding",
     EventKind.FACE_RECOGNIZED: "Recognized",
 }
@@ -65,10 +72,10 @@ class EventRecord:
     timestamp: str             # ISO format datetime.now().isoformat()
     image_path: str            # đường dẫn tuyệt đối tới file ảnh bằng chứng
     # Thông tin phụ tuỳ loại sự kiện - hiện chỉ dùng cho FACE_RECOGNIZED/
-    # FACE_CHECKIN (tên người quen được nhận diện, xem
-    # CameraPipeline._capture_face_events/pages/face_attendance_page.py) -
-    # rỗng với các loại khác (PPE/Fire/Fall/Stranger/Overcrowding không có
-    # danh tính cụ thể để hiện).
+    # FACE_CHECKIN/FACE_CHECKOUT (tên người quen được nhận diện, xem
+    # CameraPipeline._capture_face_events/pages/face_attendance_page.py/
+    # pages/gate_kiosk_page.py) - rỗng với các loại khác (PPE/Fire/Fall/
+    # Stranger/Overcrowding không có danh tính cụ thể để hiện).
     detail: str = ""
 
     @staticmethod

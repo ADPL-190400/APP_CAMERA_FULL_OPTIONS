@@ -44,6 +44,23 @@ class AIConfig:
     enable_fire: bool = False
     enable_fall: bool = False
     enable_face_recognition: bool = False
+    # Cách chống spam thông báo Người lạ cho camera này (mỗi track/lượt
+    # hiện diện - xem CameraPipeline._capture_face_events). Giá trị lưu
+    # ĐÚNG chuỗi tiếng Anh hiển thị ở combobox (canonical - cùng quy ước với
+    # vendor/inference_quality/recording_mode... trong file này, xem
+    # pages/camera_config_page.py::_combo_set_canonical):
+    #   "Notify once per visit"    - chỉ thông báo ĐÚNG 1 LẦN cho mỗi track,
+    #                                tới khi track đó biến mất khỏi khung
+    #                                hình hẳn (mặc định, chặt nhất, không
+    #                                phụ thuộc mốc thời gian - track quay
+    #                                đầu/bị che khuất thoáng qua vẫn không
+    #                                báo lại).
+    #   "Repeat after grace period" - thông báo lại nếu track đó "im lặng"
+    #                                (không có lượt nào xác nhận Stranger)
+    #                                lâu hơn ngưỡng grace period rồi xác
+    #                                nhận lại - giống hành vi PPE/Fire/Fall/
+    #                                Occupancy (_EVENT_LOG_GRACE_SEC).
+    stranger_repeat_mode: str = "Notify once per visit"
     # Ngưỡng số người tối đa cho phép trong khung hình (chỉ có ý nghĩa khi
     # enable_occupancy bật - num_people tính từ occupancy, không phải
     # counting in/out) - vượt ngưỡng này thì CameraPipeline phát 1 cảnh báo

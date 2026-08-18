@@ -54,6 +54,7 @@ from core.deep_sort_pytorch.deep_sort import DeepSort
 from core.deep_sort_pytorch.utils.parser import get_config
 from core.device_manager import DeviceManager
 from core.event_dedup import PresenceDedup
+from core.event_store import EventStore
 from core.face_crop import crop_face_with_padding
 from core.face_pose import estimate_face_frontal_ratio
 from core.gate_config import GateKind, load_gate_config, save_gate_config
@@ -154,6 +155,8 @@ class GateCaptureWorker(QThread):
         direction: Literal["in", "out"],
         gate_camera_id: str,
         roi_polygons: list[np.ndarray],
+        device_id: str = "",
+        device_name: str = "",
         parent=None,
     ):
         """gate_camera_id: CameraDevice.web_camera_id của camera đã chọn cho
@@ -162,6 +165,13 @@ class GateCaptureWorker(QThread):
         phải MAC). Rỗng = camera chưa nhập MAC hoặc chưa tra được, worker vẫn
         track/chấm công bình thường nhưng bỏ qua bước gửi Web_API (xem
         _on_presence_confirmed).
+
+        device_id/device_name: id/tên NỘI BỘ của camera (device.id/device.name
+        - KHÁC gate_camera_id ở trên) - dùng để ghi Event Log cục bộ
+        (EventStore, xem _on_presence_confirmed), giống quy ước
+        core/camera_pipeline.py/pages/face_attendance_page.py. Event Log vẫn
+        ghi được dù gate_camera_id rỗng (chưa nhập MAC) - KHÔNG phụ thuộc
+        việc gửi web có thành công hay không.
 
         roi_polygons: vùng "cổng" (device.roi_regions đã parse - xem
         GateWindow._start_watching) - chỉ track nào có tâm bbox nằm trong 1
@@ -172,6 +182,8 @@ class GateCaptureWorker(QThread):
         super().__init__(parent)
         self._direction = direction
         self._gate_camera_id = gate_camera_id
+        self._device_id = device_id
+        self._device_name = device_name or device_id
         self._roi_polygons = roi_polygons
         self._running = True
 
@@ -392,6 +404,23 @@ class GateCaptureWorker(QThread):
         pixmap = self._crop_to_pixmap(crop)
         now = datetime.now()
         self.crossing_event.emit({"employee": employee, "pixmap": pixmap, "ts": now})
+
+        # Ghi Event Log (SQLite, cục bộ) TRƯỚC, KHÔNG phụ thuộc gate_camera_id
+        # hay việc gửi web bên dưới có thành công hay không - giống quy ước
+        # pages/face_attendance_page.py::_checkin/core/camera_pipeline.py -
+        # luôn có lịch sử cục bộ (kèm ảnh crop mặt) dù camera chưa nhập MAC
+        # hoặc mất mạng lúc gửi. Trước đây Gate Kiosk KHÔNG ghi gì vào Event
+        # Log cả (chỉ gửi web + hiện gallery card trong RAM, tắt app là mất).
+        if employee is not None:
+            # "in"/"out" -> đúng kind riêng (FACE_CHECKIN/FACE_CHECKOUT) để
+            # cột "Event Type" ở Event Log phân biệt được đúng hướng, không
+            # phải đoán qua tên camera (2 cổng thường đặt tên riêng nhưng
+            # không đảm bảo luôn rõ nghĩa).
+            kind = EventKind.FACE_CHECKIN if self._direction == "in" else EventKind.FACE_CHECKOUT
+            name = f"{employee.get('last_name') or ''} {employee.get('first_name') or ''}".strip()
+            EventStore.instance().add_event(self._device_id, self._device_name, kind, crop, detail=name)
+        else:
+            EventStore.instance().add_event(self._device_id, self._device_name, EventKind.STRANGER_ALERT, crop)
 
         # self._gate_camera_id = web_camera_id (camera_id THẬT của server,
         # đã tra + lưu sẵn lúc Save/Apply ở camera_config_page.py) của camera
@@ -709,7 +738,9 @@ class GateWindow(QtWidgets.QMainWindow):
         # device.id nội bộ, cũng không phải MAC - xem GateCaptureWorker.__init__);
         # rỗng nghĩa là camera chưa nhập MAC/chưa tra được, worker tự bỏ qua
         # bước gửi web.
-        self._worker = GateCaptureWorker(self._direction, device.web_camera_id, roi_polygons)
+        self._worker = GateCaptureWorker(
+            self._direction, device.web_camera_id, roi_polygons, device.id, device.name
+        )
         self._worker.crossing_event.connect(self._on_crossing_event)
         self._worker.tracks_ready.connect(self.video_view.set_tracks)
         self._worker.start()

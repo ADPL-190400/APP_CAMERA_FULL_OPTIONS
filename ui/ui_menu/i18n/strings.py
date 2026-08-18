@@ -552,6 +552,37 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Face recognition - alert on strangers / recognize known people",
         "ja": "顔認識 - 不審者を警告 / 既知の人物を認識",
     },
+    "Repeat Stranger alert": {
+        "vi": "Lặp lại cảnh báo Người lạ",
+        "en": "Repeat Stranger alert",
+        "ja": "不審者アラートの再通知",
+    },
+    "Notify once per visit": {
+        "vi": "Chỉ báo 1 lần mỗi lượt xuất hiện",
+        "en": "Notify once per visit",
+        "ja": "来訪ごとに1回だけ通知",
+    },
+    "Repeat after grace period": {
+        "vi": "Báo lại sau thời gian chờ",
+        "en": "Repeat after grace period",
+        "ja": "猶予期間後に再通知",
+    },
+    "How to handle the SAME lingering stranger being seen again after briefly turning away/being partly "
+    "hidden. \"Notify once\" only alerts the first time until they leave the frame entirely. \"Repeat after "
+    "grace period\" alerts again if they go quiet for a while and get reconfirmed - same behavior as PPE/"
+    "Fire/Fall/Overcrowding.": {
+        "vi": "Cách xử lý khi vẫn ĐÚNG 1 người lạ đó bị nhìn thấy lại sau khi vừa quay đầu/bị che khuất một "
+        "phần. \"Chỉ báo 1 lần\" chỉ cảnh báo lần đầu tiên, tới khi họ ra khỏi khung hình hẳn. \"Báo lại sau "
+        "thời gian chờ\" cảnh báo lại nếu họ \"im lặng\" một lúc rồi được xác nhận lại - giống hành vi PPE/"
+        "Fire/Fall/Overcrowding.",
+        "en": "How to handle the SAME lingering stranger being seen again after briefly turning away/being "
+        "partly hidden. \"Notify once\" only alerts the first time until they leave the frame entirely. "
+        "\"Repeat after grace period\" alerts again if they go quiet for a while and get reconfirmed - same "
+        "behavior as PPE/Fire/Fall/Overcrowding.",
+        "ja": "同じ滞留中の不審者が、少し目を離した/一部隠れた後に再び見られた場合の扱い方。「1回だけ通知」は"
+        "画面から完全に消えるまで最初の1回だけ警告します。「猶予期間後に再通知」は、しばらく静かになって再確"
+        "認された場合に再度警告します - PPE/Fire/Fall/Overcrowdingと同じ挙動です。",
+    },
     "Face match sensitivity": {
         "vi": "Độ nhạy nhận diện khuôn mặt",
         "en": "Face match sensitivity",
@@ -785,6 +816,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "Fall": {"vi": "Té ngã", "en": "Fall", "ja": "転倒"},
     "Stranger": {"vi": "Người lạ", "en": "Stranger", "ja": "不審者"},
     "Check-in": {"vi": "Điểm danh", "en": "Check-in", "ja": "チェックイン"},
+    "Check-out": {"vi": "Điểm danh ra", "en": "Check-out", "ja": "チェックアウト"},
     "All time": {"vi": "Toàn bộ thời gian", "en": "All time", "ja": "全期間"},
     "Today": {"vi": "Hôm nay", "en": "Today", "ja": "今日"},
     "Last 7 days": {"vi": "7 ngày gần đây", "en": "Last 7 days", "ja": "過去7日間"},

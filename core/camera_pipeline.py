@@ -73,8 +73,14 @@ _FALL_CROP_PADDING = 30
 
 # Face recognition - port từ Face_detection.py của MIRAI.
 _FACE_DET_SCORE_THRESHOLD = 0.5   # ngưỡng chất lượng detection, giống mọi model YOLO khác ở đây
-_STRANGER_STREAK_REQUIRED = 3      # cần 3 lượt AI liên tiếp thấy "Stranger" mới báo động (tránh nhiễu 1 frame)
 _FACE_MAX_PER_FRAME = 10           # đám đông > 10 mặt/frame -> chỉ nhận diện 10 mặt gần/to nhất, tránh cả frame bị kéo chậm vì nhận diện hết
+
+# Khoảng cách tâm mặt vừa detect<->tâm track tối đa để gán danh tính, tính
+# theo % chiều rộng frame - PORT từ pages/gate_kiosk_page.py cùng giá trị
+# (track ở đây LÀ bbox mặt, DeepSort track thẳng trên detect_faces, không
+# qua body/đầu trung gian) nên 2 tâm gần như trùng nhau khi cùng 1 người;
+# giữ ngưỡng nhỏ để không lẫn giữa 2 mặt đứng gần nhau trong khung đông người.
+_IDENTITY_MATCH_MAX_DIST_RATIO = 0.08
 
 # 3 trạng thái hiển thị/xử lý cho mỗi khuôn mặt phát hiện được - xem
 # CameraPipeline._check_faces (docstring đầy đủ ở đó).
@@ -86,6 +92,13 @@ _FACE_STATUS_COLORS = {  # BGR - xem _draw_overlay
     _FACE_STATUS_STRANGER: (0, 100, 255),  # cam/đỏ
     _FACE_STATUS_UNKNOWN: (0, 220, 255),   # vàng - chưa đủ căn cứ kết luận
 }
+
+# 2 chế độ chống spam thông báo Người lạ (AIConfig.stranger_repeat_mode,
+# chọn riêng từng camera qua Camera Config) - xem _capture_face_events.
+# Giá trị PHẢI khớp đúng chuỗi canonical ở pages/camera_config_page.py
+# (_TR_COMBO_ITEMS["combo_stranger_repeat_mode"]).
+_STRANGER_REPEAT_ONCE = "Notify once per visit"
+_STRANGER_REPEAT_GRACE_PERIOD = "Repeat after grace period"
 
 # Event Log: cùng ngưỡng "đợt vi phạm mới" với Event Feed/System Alarms
 # (dashboard_page.py/liveview_page.py) - tránh lưu ảnh spam liên tục trong
@@ -101,7 +114,7 @@ _RECONNECT_POLL_MS = 200
 class CameraPipeline(QThread):
     frame_ready = pyqtSignal(str, QImage)   # device_id, frame (chỉ emit khi có viewer)
     error_occurred = pyqtSignal(str, str)   # device_id, message
-    ai_result_ready = pyqtSignal(str, dict)  # device_id, {"num_people","num_in","num_out","ppe_violation","fire_alert","fall_alert","occupancy_alert"}
+    ai_result_ready = pyqtSignal(str, dict)  # device_id, {"num_people","num_in","num_out","ppe_violation","fire_alert","fall_alert","occupancy_alert","stranger_alert","stranger_track_ids","known_faces"}
 
     def __init__(
         self,
@@ -121,6 +134,7 @@ class CameraPipeline(QThread):
         enable_fire: bool = False,
         enable_fall: bool = False,
         enable_face_recognition: bool = False,
+        stranger_repeat_mode: str = _STRANGER_REPEAT_ONCE,
         show_bbox: bool = True,
         show_label: bool = True,
         show_roi: bool = False,
@@ -183,7 +197,42 @@ class CameraPipeline(QThread):
         self._last_fall_alert = False
         self._last_fall_bbox: tuple[int, int, int, int] | None = None
         self._last_stranger_alert = False
-        self._last_face_boxes: list[tuple[int, int, int, int, str, str]] = []  # x1,y1,x2,y2,label,status (_FACE_STATUS_*)
+        # x1,y1,x2,y2,label,status (_FACE_STATUS_*),track_id,in_roi
+        self._last_face_boxes: list[tuple[int, int, int, int, str, str, int, bool]] = []
+
+        # Face recognition: tracker DeepSort RIÊNG cho khuôn mặt (KHÁC
+        # self._tracker ở trên - đó là tracker cho bbox ĐẦU/THÂN dùng cho
+        # đếm vào/ra/occupancy/PPE, không liên quan) - PORT nguyên cơ chế từ
+        # pages/gate_kiosk_page.py (_bind_identities/_track_seen_well/
+        # _track_best_sim) để giải quyết đúng gốc vấn đề: không tracking qua
+        # nhiều frame thì 1 người lạ/quen di chuyển/quay đầu bị đánh giá lại
+        # từ đầu MỖI FRAME, dễ vừa báo nhầm "Stranger" (1 frame góc xấu)
+        # VỪA spam lặp lại nhiều lần cho ĐÚNG 1 người (streak reset liên tục
+        # + không có khái niệm "đây vẫn là người tôi đã thấy lúc trước").
+        self._face_tracker: DeepSort | None = None
+        # track_id -> tên người quen đã khớp (sticky - 1 khi đã khớp thì GIỮ
+        # NGUYÊN cho tới khi track biến mất, không hạ cấp chỉ vì 1 lượt match
+        # trượt do góc mặt xấu tạm thời) - None nghĩa là CHƯA từng khớp ai
+        # (ứng viên Stranger/Unknown, xem _check_faces).
+        self._face_track_identity: dict[int, str | None] = {}
+        # Track đã từng có ÍT NHẤT 1 lượt vừa đủ rõ (stranger_confirm_min_score)
+        # VỪA đủ thẳng (stranger_min_frontal_ratio, core/face_pose.py) - track
+        # CHƯA có mặt trong set này thì chưa đủ điều kiện xác nhận Stranger.
+        self._face_track_seen_well: set[int] = set()
+        # Similarity CAO NHẤT từng đo được cho track (chỉ cập nhật khi CHƯA
+        # khớp ra ai, xem _bind_face_identities) - "vùng xám": similarity
+        # từng cao hơn stranger_ambiguous_max_sim ở BẤT KỲ lượt nào thì track
+        # đó không bao giờ được xác nhận Stranger nữa (có nét giống 1 người
+        # quen, dù chưa đủ khớp).
+        self._face_track_best_sim: dict[int, float] = {}
+        # Track (Stranger) đã từng được thông báo/ghi Event Log RỒI - chỉ
+        # thông báo ĐÚNG 1 LẦN cho mỗi track, cho tới khi track đó thực sự
+        # biến mất (bị prune - xem _prune_face_tracks), KHÔNG dùng grace
+        # period theo giây như PPE/Fire/Fall (_event_dedup) - người lạ quay
+        # đầu qua lại/che khuất thoáng qua trong lúc track vẫn còn sống
+        # (DeepSort tự chịu được vài giây mất dấu) sẽ KHÔNG bị báo lại, dù
+        # khoảng "im lặng" giữa 2 lần thấy rõ có dài hơn vài giây.
+        self._face_track_notified: set[int] = set()
 
         # Toàn bộ cờ enable/ROI/Line/Overlay được gom vào update_ai_settings()
         # - dùng chung cho cả lúc khởi tạo LẪN khi DeviceManager đẩy cấu hình
@@ -198,6 +247,7 @@ class CameraPipeline(QThread):
             enable_fire=enable_fire,
             enable_fall=enable_fall,
             enable_face_recognition=enable_face_recognition,
+            stranger_repeat_mode=stranger_repeat_mode,
             counting_line=counting_line,
             roi_polygons=roi_polygons,
             show_bbox=show_bbox,
@@ -219,6 +269,7 @@ class CameraPipeline(QThread):
         enable_fire: bool,
         enable_fall: bool,
         enable_face_recognition: bool,
+        stranger_repeat_mode: str,
         counting_line: str,
         roi_polygons: list[str] | None,
         show_bbox: bool,
@@ -255,6 +306,13 @@ class CameraPipeline(QThread):
         self._enable_fire = enable_fire
         self._enable_fall = enable_fall
         self._enable_face_recognition = enable_face_recognition
+        # "once"/"grace_period" - xem AIConfig.stranger_repeat_mode/
+        # _capture_face_events. Không rơi vào giá trị lạ (vd config cũ
+        # trước khi field này tồn tại) -> coi như "once" (mặc định, chặt
+        # nhất) thay vì crash hay im lặng theo hành vi grace_period.
+        self._stranger_repeat_mode = (
+            stranger_repeat_mode if stranger_repeat_mode == _STRANGER_REPEAT_GRACE_PERIOD else _STRANGER_REPEAT_ONCE
+        )
 
         # Overlay (tab Overlay của camera_config_page) - vẽ TRỰC TIẾP lên
         # frame trước khi emit, để Basic tab preview lẫn LiveView card đều
@@ -307,7 +365,6 @@ class CameraPipeline(QThread):
         self._ppe_violation_streak = 0
         self._fall_buffer: deque[bool] = deque(maxlen=AISettings.instance().fall_confirm_window)
         self._fall_confirmed = False
-        self._stranger_streak = 0
 
     # ------------------------------------------------------------------ #
     # Điều khiển từ bên ngoài (main thread)
@@ -383,6 +440,15 @@ class CameraPipeline(QThread):
         known_faces, stranger_alert = (
             self._check_faces(frame) if self._enable_face_recognition else ([], False)
         )
+        # track_id của MỖI người lạ "đã xác nhận" riêng biệt trong lượt này,
+        # CHỈ trong vùng ROI nếu camera có cấu hình (box[7], xem _check_faces
+        # - self._last_face_boxes đã có sẵn từ _check_faces) - cho phép
+        # SYSTEM ALARMS/Event Feed (liveview_page.py/dashboard_page.py) phân
+        # biệt 2 người lạ khác nhau xuất hiện gần nhau về thời gian, không
+        # dồn chung thành 1 dòng log như khi chỉ có 1 boolean stranger_alert.
+        stranger_track_ids = [
+            box[6] for box in self._last_face_boxes if box[5] == _FACE_STATUS_STRANGER and box[7]
+        ]
 
         # Đếm vào/ra, Occupancy, PPE chỉ cần BBOX (không cần keypoints) nên
         # dùng human.pt (detector thuần, ~7ms/frame - nhẹ hơn nhiều so với
@@ -444,6 +510,7 @@ class CameraPipeline(QThread):
             occupancy_alert=occupancy_alert,
             known_faces=known_faces,
             stranger_alert=stranger_alert,
+            stranger_track_ids=stranger_track_ids,
         )
 
     def _capture_events(
@@ -481,50 +548,66 @@ class CameraPipeline(QThread):
                 EventStore.instance().add_event(self._device_id, self._device_name, kind, evidence_frame)
                 self._send_incident(evidence_frame, kind)
 
-        self._capture_face_events(frame, stranger_alert)
+        self._capture_face_events(frame)
 
-    def _capture_face_events(self, frame, stranger_alert: bool) -> None:
+    def _capture_face_events(self, frame) -> None:
         """Ghi Event Log cho khuôn mặt nhận diện được ở lượt AI này
         (self._last_face_boxes - đã có sẵn từ _check_faces, mỗi phần tử là
-        (x1,y1,x2,y2,nhãn,status - status là 1 trong _FACE_STATUS_KNOWN/
-        _STRANGER/_UNKNOWN) - ảnh bằng chứng là ẢNH CROP KHUÔN MẶT
-        (core/face_crop.py), giống hệt cách Gate Kiosk đã làm
+        (x1,y1,x2,y2,nhãn,status,track_id) - status là 1 trong
+        _FACE_STATUS_KNOWN/_STRANGER/_UNKNOWN) - ảnh bằng chứng là ẢNH CROP
+        KHUÔN MẶT (core/face_crop.py), giống hệt cách Gate Kiosk đã làm
         (pages/gate_kiosk_page.py::_on_presence_confirmed), KHÔNG phải cả
         frame - xem lại nhanh đúng mặt ai mà không cần phóng to.
 
-        Người QUEN (status == known): log NGAY mỗi lượt nhận diện MỚI -
-        dedup theo (kind, tên) nên 1 người đứng yên liên tục trong khung
-        không log lặp lại (giống cách "Recognized {name}" đã log ở panel
-        SYSTEM ALARMS/liveview_page.py), không cần thêm lớp xác nhận nào vì
-        similarity đã vượt ngưỡng khớp là đủ tin cậy - khác Stranger (dưới
-        đây). status == unknown KHÔNG log gì cả (chưa đủ căn cứ kết luận là
-        ai - xem _check_faces).
+        Người QUEN (status == known): dedup theo (kind, tên) - 1 người đứng
+        yên liên tục trong khung không log lặp lại.
 
-        Người LẠ (status == stranger, ĐÃ qua đủ 3 gate xác nhận): CHỈ log
-        khi stranger_alert đã được xác nhận (streak - xem _check_faces) -
-        tái dùng đúng EventKind.STRANGER_ALERT (không tách theo từng mặt vì
-        không có tracking để biết 2 lượt liền có phải cùng 1 người lạ hay
-        không), ảnh bằng chứng là crop mặt "stranger" đầu tiên tìm được
-        trong lượt này (chắc chắn có ít nhất 1 mặt như vậy - streak chỉ tăng
-        khi lượt đó có mặt status == stranger)."""
-        for x1, y1, x2, y2, name, status in self._last_face_boxes:
-            if status != _FACE_STATUS_KNOWN:
+        Người LẠ (status == stranger, ĐÃ qua đủ gate xác nhận nhờ tracking -
+        xem _check_faces/_bind_face_identities): 1 trong 2 CHẾ ĐỘ chống spam
+        chọn riêng từng camera (AIConfig.stranger_repeat_mode, Camera Config
+        tab AI) - KHÁC bản cũ dùng chung 1 key EventKind.STRANGER_ALERT cho
+        MỌI người lạ trên camera (bug đã gặp thật: 1 người lạ đứng lâu quay
+        đầu qua lại làm status "tắt/bật" liên tục do đánh giá lại từ đầu mỗi
+        frame -> mỗi lần "bật" lại sau grace period bị tính là người lạ MỚI
+        -> spam) - cả 2 chế độ đều dedup theo TỪNG track_id riêng (người lạ
+        khác nhau vẫn được báo riêng, không lẫn nhau), chỉ khác THỜI ĐIỂM
+        được báo lại cho ĐÚNG 1 track:
+          - "once"         - CHỈ thông báo 1 LẦN DUY NHẤT cho mỗi track
+                             (self._face_track_notified), tới khi track đó
+                             biến mất khỏi khung hình hẳn - không phụ thuộc
+                             mốc thời gian nào.
+          - "grace_period" - thông báo lại nếu track đó "im lặng" (không có
+                             lượt nào xác nhận Stranger) lâu hơn
+                             _EVENT_LOG_GRACE_SEC giây rồi xác nhận lại
+                             (self._event_dedup, giống PPE/Fire/Fall/
+                             Occupancy).
+
+        in_roi (xem _check_faces) - CHỈ ghi Event Log cho khuôn mặt trong
+        vùng ROI (camera có cấu hình) - người ngoài vùng quan tâm không tạo
+        thông báo/không ghi log dù vẫn hiện đúng trên preview."""
+        for x1, y1, x2, y2, name, status, track_id, in_roi in self._last_face_boxes:
+            if not in_roi:
                 continue
-            key = (EventKind.FACE_RECOGNIZED, name)
-            if self._event_dedup.is_new_occurrence(key):
-                evidence = crop_face_with_padding(frame, (x1, y1, x2, y2))
-                EventStore.instance().add_event(
-                    self._device_id, self._device_name, EventKind.FACE_RECOGNIZED, evidence, detail=name
-                )
-
-        if stranger_alert:
-            stranger_box = next((b for b in self._last_face_boxes if b[5] == _FACE_STATUS_STRANGER), None)
-            if stranger_box is not None and self._event_dedup.is_new_occurrence(EventKind.STRANGER_ALERT):
-                evidence = crop_face_with_padding(frame, stranger_box[:4])
-                EventStore.instance().add_event(
-                    self._device_id, self._device_name, EventKind.STRANGER_ALERT, evidence
-                )
-                self._send_incident(evidence, EventKind.STRANGER_ALERT)
+            if status == _FACE_STATUS_KNOWN:
+                key = (EventKind.FACE_RECOGNIZED, name)
+                if self._event_dedup.is_new_occurrence(key):
+                    evidence = crop_face_with_padding(frame, (x1, y1, x2, y2))
+                    EventStore.instance().add_event(
+                        self._device_id, self._device_name, EventKind.FACE_RECOGNIZED, evidence, detail=name
+                    )
+            elif status == _FACE_STATUS_STRANGER:
+                if self._stranger_repeat_mode == _STRANGER_REPEAT_GRACE_PERIOD:
+                    should_notify = self._event_dedup.is_new_occurrence((EventKind.STRANGER_ALERT, track_id))
+                else:
+                    should_notify = track_id not in self._face_track_notified
+                    if should_notify:
+                        self._face_track_notified.add(track_id)
+                if should_notify:
+                    evidence = crop_face_with_padding(frame, (x1, y1, x2, y2))
+                    EventStore.instance().add_event(
+                        self._device_id, self._device_name, EventKind.STRANGER_ALERT, evidence
+                    )
+                    self._send_incident(evidence, EventKind.STRANGER_ALERT)
 
     def _send_incident(self, evidence_frame, kind: EventKind) -> None:
         """Gửi lên web qua Web_API.send_mobile_incident - CHỈ khi camera đã
@@ -573,70 +656,194 @@ class CameraPipeline(QThread):
         return boxes is not None and len(boxes) > 0
 
     def _check_faces(self, frame) -> tuple[list[str], bool]:
-        """Face recognition port từ Face_detection.py của MIRAI: chạy trên
-        TOÀN khung hình, độc lập Body/Pose (giống Fire). Mỗi face detect
-        được so với KnownFacesStore (dùng chung mọi camera, tự lấy từ
-        Web_API) - khớp thì trả về tên người quen, không khớp thì "Stranger".
-        Trả về (list tên người quen thấy trong frame này, có báo động người
-        lạ hay không - đã debounce qua _stranger_streak giống PPE, tránh
-        báo nhầm vì 1 frame nhiễu/góc mặt xấu).
+        """Face recognition port từ Face_detection.py của MIRAI, NÂNG CẤP
+        thêm TRACKING qua nhiều frame (DeepSort riêng cho mặt - xem
+        self._face_tracker/_bind_face_identities) - PORT nguyên cơ chế từ
+        pages/gate_kiosk_page.py để sửa đúng gốc 2 bug đã gặp thật:
+          (1) chỉ quay nghiêng mặt 1 chút cũng lập tức bị coi là "Stranger"
+              (không tracking -> mỗi frame đánh giá lại từ đầu, 1 frame góc
+              xấu đủ để nhìn similarity tụt xuống ngưỡng Stranger).
+          (2) 1 người lạ đứng lâu quay đầu qua lại bị spam thông báo NHIỀU
+              LẦN (mỗi lần trạng thái "tắt/bật" lại qua grace period bị
+              tính là người lạ MỚI, do không có khái niệm "đây vẫn là
+              đúng 1 người tôi đã thấy lúc trước").
+        Tracking giải quyết cả 2: 1 track ổn định xuyên suốt cả lúc người đó
+        quay đầu/di chuyển (DeepSort tự chịu được vài frame mất dấu), nên chỉ
+        cần ĐÚNG 1 lần nhìn rõ+thẳng là "seen well" mãi mãi cho track đó
+        (không mất vì mấy frame sau quay đầu), và similarity xét theo CAO
+        NHẤT từng đo được của track (không phải riêng frame này).
 
-        3 TRẠNG THÁI cho mỗi khuôn mặt (self._last_face_boxes, xem
-        _FACE_STATUS_*) - KHÔNG còn nhị phân "khớp/Stranger" như trước (bug
-        đã gặp thật: chỉ quay nghiêng mặt cũng lập tức hiện "Stranger" trên
-        preview dù chưa đủ căn cứ kết luận):
-          - "known"    - similarity vượt ngưỡng khớp (AISettings.
-                         face_similarity_threshold) -> tên thật.
-          - "stranger" - KHÔNG khớp ai VÀ đã qua đủ CẢ 3 gate xác nhận: mặt
-                         nhìn đủ rõ (stranger_confirm_min_score), mặt đủ
-                         THẲNG (stranger_min_frontal_ratio, xem
-                         core/face_pose.py - det_score cao KHÔNG có nghĩa
-                         mặt đang nhìn thẳng), similarity đủ thấp
-                         (stranger_ambiguous_max_sim) - CHỈ trạng thái này
-                         mới góp phần vào streak/cảnh báo/Event Log.
-          - "unknown"  - KHÔNG khớp ai NHƯNG chưa đủ căn cứ để kết luận
-                         Stranger (thiếu 1 trong 3 gate ở trên - mặt mờ/
-                         nghiêng/có nét giống người quen nhưng chưa đủ) -
-                         hiện nhãn "Unknown" (KHÔNG PHẢI "Stranger") trên
-                         preview, không góp phần vào bất kỳ streak/cảnh báo
-                         nào - chỉ chờ lượt AI sau nhìn rõ/thẳng hơn để rơi
-                         hẳn về "known" hoặc "stranger".
-        2 ngưỡng/gate này đều chỉnh được qua UI "AI Setting", áp dụng NGAY
-        toàn hệ thống."""
+        Trả về (list tên người quen thấy trong frame này, có ít nhất 1
+        khuôn mặt "Stranger đã xác nhận" trong frame này hay không - dùng
+        cho SYSTEM ALARMS/camera card badge, xem _emit_ai_result).
+
+        3 TRẠNG THÁI cho mỗi khuôn mặt/track (self._last_face_boxes, xem
+        _FACE_STATUS_*):
+          - "known"    - track đã khớp ra 1 người quen (sticky - xem
+                         _bind_face_identities) -> tên thật.
+          - "stranger" - CHƯA từng khớp ai VÀ đã qua đủ CẢ 2 gate: track
+                         từng có ÍT NHẤT 1 lượt nhìn đủ rõ + đủ THẲNG
+                         (_face_track_seen_well, gate stranger_confirm_min_score
+                         + stranger_min_frontal_ratio - core/face_pose.py),
+                         VÀ similarity CAO NHẤT từng đo được của track vẫn
+                         đủ thấp (_face_track_best_sim <= stranger_ambiguous_max_sim,
+                         "vùng xám" - 1 lần similarity cao hơn mức này ở BẤT
+                         KỲ lúc nào thì track đó không bao giờ được xác nhận
+                         Stranger nữa) - CHỈ trạng thái này mới góp phần vào
+                         cảnh báo/Event Log.
+          - "unknown"  - CHƯA từng khớp ai NHƯNG chưa đủ 1 trong 2 gate ở
+                         trên (chưa từng nhìn đủ rõ/thẳng, HOẶC có nét giống
+                         người quen nhưng chưa đủ) - hiện nhãn "Unknown"
+                         (KHÔNG PHẢI "Stranger"), không góp phần vào cảnh
+                         báo nào - chỉ chờ lượt sau nhìn rõ/thẳng hơn.
+        Mọi ngưỡng/gate đều chỉnh được qua UI "AI Setting", áp dụng NGAY
+        toàn hệ thống.
+
+        ROI (tab ROI, nếu camera có vẽ ít nhất 1 vùng) - giống hệt cách Gate
+        Kiosk giới hạn theo vùng "cổng" (pages/gate_kiosk_page.py): khuôn
+        mặt/track vẫn được DETECT + TRACK + NHẬN DIỆN bình thường trên TOÀN
+        khung hình (không cắt bớt vùng nhìn thấy trên preview - vẫn thấy đủ
+        tên/trạng thái mọi người, kể cả ngoài ROI), nhưng CHỈ khuôn mặt có
+        TÂM bbox nằm trong ROI mới được TÍNH VÀO known_faces/cảnh báo Stranger/
+        Event Log (xem _capture_face_events) - người ngoài vùng quan tâm
+        không tạo thông báo/không ghi log, dù vẫn hiện đúng tên/trạng thái
+        trên khung preview. Camera CHƯA vẽ ROI nào (roi_polygons rỗng) ->
+        KHÔNG giới hạn, xét toàn khung hình như trước (giữ nguyên hành vi cũ
+        cho camera chưa cấu hình ROI)."""
         faces = AIModelManager.instance().detect_faces(frame, max_num=_FACE_MAX_PER_FRAME)
-        store = KnownFacesStore.instance()
-        settings = AISettings.instance()
+        good_faces = [f for f in faces if f.det_score >= _FACE_DET_SCORE_THRESHOLD]
 
+        if not good_faces:
+            self._prune_face_tracks(active_ids=set())
+            self._last_face_boxes = []
+            return [], False
+
+        bbox_xywh = torch.Tensor([self._xyxy_to_xywh(f.bbox) for f in good_faces])
+        confidences = torch.Tensor([float(f.det_score) for f in good_faces])
+        classes = [0] * len(good_faces)  # 1 "lớp" duy nhất (mặt) - DeepSort cần tham số này nhưng không dùng để phân biệt gì thêm ở đây
+        outputs = self._get_face_tracker().update(bbox_xywh, confidences, classes, frame)
+
+        self._bind_face_identities(outputs, good_faces, frame.shape[1])
+
+        settings = AISettings.instance()
         known_faces: list[str] = []
         any_confirmed_stranger = False
-        face_boxes: list[tuple[int, int, int, int, str, str]] = []
+        face_boxes: list[tuple[int, int, int, int, str, str, int, bool]] = []
+        active_ids: set[int] = set()
 
-        for face in faces:
-            if face.det_score < _FACE_DET_SCORE_THRESHOLD:
-                continue
-            name, sim = store.match(face.normed_embedding, threshold=settings.face_similarity_threshold)
-            if name != "Stranger":
-                known_faces.append(name)
-                status = _FACE_STATUS_KNOWN
-                label = name
+        for x1, y1, x2, y2, track_id, _cls in outputs:
+            track_id = int(track_id)
+            active_ids.add(track_id)
+            in_roi = not self._roi_polygons or self._face_center_in_roi((x1, y1, x2, y2))
+            name = self._face_track_identity.get(track_id)
+            if name is not None:
+                status, label = _FACE_STATUS_KNOWN, name
+                if in_roi:
+                    known_faces.append(name)
             elif (
+                track_id in self._face_track_seen_well
+                and self._face_track_best_sim.get(track_id, 0.0) <= settings.stranger_ambiguous_max_sim
+            ):
+                status, label = _FACE_STATUS_STRANGER, "Stranger"
+                if in_roi:
+                    any_confirmed_stranger = True
+            else:
+                status, label = _FACE_STATUS_UNKNOWN, "Unknown"
+            face_boxes.append((int(x1), int(y1), int(x2), int(y2), label, status, track_id, in_roi))
+
+        self._prune_face_tracks(active_ids)
+        self._last_face_boxes = face_boxes
+        return known_faces, any_confirmed_stranger
+
+    def _face_center_in_roi(self, bbox) -> bool:
+        x1, y1, x2, y2 = bbox
+        center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+        return any(cv2.pointPolygonTest(polygon, center, False) >= 0 for polygon in self._roi_polygons)
+
+    def _get_face_tracker(self) -> DeepSort:
+        """Tracker DeepSort RIÊNG cho khuôn mặt - KHÁC self._get_tracker()
+        (bbox đầu/thân, dùng cho đếm vào/ra/occupancy/PPE) - 2 tracker độc
+        lập hoàn toàn, không chia sẻ track_id/state gì với nhau. Cùng
+        cấu hình DEEPSORT_YAML/REID_CKPT với tracker kia (không cần model
+        riêng - DeepSort chỉ dùng ReID để bám theo 1 vùng ảnh liên tục qua
+        các frame, không quan tâm đó là mặt hay cả người)."""
+        if self._face_tracker is None:
+            cfg = get_config()
+            cfg.merge_from_file(_DEEPSORT_YAML)
+            cfg.DEEPSORT.REID_CKPT = _REID_CKPT
+            self._face_tracker = DeepSort(
+                cfg.DEEPSORT.REID_CKPT,
+                max_dist=cfg.DEEPSORT.MAX_DIST,
+                min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
+                nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP,
+                max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
+                max_age=cfg.DEEPSORT.MAX_AGE,
+                n_init=cfg.DEEPSORT.N_INIT,
+                nn_budget=cfg.DEEPSORT.NN_BUDGET,
+                use_cuda=torch.cuda.is_available(),
+            )
+        return self._face_tracker
+
+    def _bind_face_identities(self, outputs, good_faces, frame_width: int) -> None:
+        """Gán/giữ danh tính cho từng track mặt - PORT từ
+        pages/gate_kiosk_page.py::_bind_identities (xem docstring gốc ở đó
+        về lý do "sticky" - track_id do DeepSort gán liền mạch cho 1 vùng
+        ảnh đang bám theo, gần như chắc chắn vẫn là CÙNG 1 người trong suốt
+        vòng đời track đó, nên 1 lượt match trượt do góc mặt xấu tạm thời
+        KHÔNG được hạ cấp 1 track đã từng khớp ra người quen xuống lại
+        "chưa rõ")."""
+        if not good_faces or len(outputs) == 0:
+            return
+        max_dist = _IDENTITY_MATCH_MAX_DIST_RATIO * frame_width
+        store = KnownFacesStore.instance()
+        settings = AISettings.instance()
+        for face in good_faces:
+            fx1, fy1, fx2, fy2 = face.bbox
+            face_center = ((fx1 + fx2) / 2, (fy1 + fy2) / 2)
+            best_track_id, best_dist = None, max_dist
+            for x1, y1, x2, y2, track_id, _cls in outputs:
+                center = ((x1 + x2) / 2, (y1 + y2) / 2)
+                dist = ((center[0] - face_center[0]) ** 2 + (center[1] - face_center[1]) ** 2) ** 0.5
+                if dist < best_dist:
+                    best_dist = dist
+                    best_track_id = int(track_id)
+            if best_track_id is None:
+                continue
+
+            if (
                 face.det_score >= settings.stranger_confirm_min_score
                 and estimate_face_frontal_ratio(face.kps) >= settings.stranger_min_frontal_ratio
-                and sim <= settings.stranger_ambiguous_max_sim
             ):
-                any_confirmed_stranger = True
-                status = _FACE_STATUS_STRANGER
-                label = "Stranger"
-            else:
-                status = _FACE_STATUS_UNKNOWN
-                label = "Unknown"
-            x1, y1, x2, y2 = map(int, face.bbox)
-            face_boxes.append((x1, y1, x2, y2, label, status))
+                self._face_track_seen_well.add(best_track_id)
 
-        self._last_face_boxes = face_boxes
-        self._stranger_streak = self._stranger_streak + 1 if any_confirmed_stranger else 0
-        stranger_alert = self._stranger_streak >= _STRANGER_STREAK_REQUIRED
-        return known_faces, stranger_alert
+            name, sim = store.match(face.normed_embedding, threshold=settings.face_similarity_threshold)
+            matched_name = None if name == "Stranger" else name
+            if matched_name is None:
+                self._face_track_best_sim[best_track_id] = max(
+                    sim, self._face_track_best_sim.get(best_track_id, 0.0)
+                )
+            else:
+                self._face_track_best_sim.pop(best_track_id, None)
+            # Chỉ ghi đè khi CÓ khớp, hoặc track này CHƯA từng xuất hiện -
+            # track đã có trong dict (dù đang là None) mà lượt này lại
+            # trượt (matched_name is None) thì GIỮ NGUYÊN giá trị cũ (sticky).
+            if matched_name is not None or best_track_id not in self._face_track_identity:
+                self._face_track_identity[best_track_id] = matched_name
+
+    def _prune_face_tracks(self, active_ids: set[int]) -> None:
+        for track_id in list(self._face_track_identity):
+            if track_id not in active_ids:
+                del self._face_track_identity[track_id]
+        self._face_track_seen_well &= active_ids
+        for track_id in list(self._face_track_best_sim):
+            if track_id not in active_ids:
+                del self._face_track_best_sim[track_id]
+        # Track biến mất thật (DeepSort hết chịu được, xem MAX_AGE) -> xoá
+        # khỏi "đã thông báo" luôn, để nếu 1 track_id SAU NÀY được cấp lại
+        # cho 1 người lạ hoàn toàn khác thì không bị "miễn thông báo" oan vì
+        # trùng số track_id cũ (DeepSort tái sử dụng ID sau khi track cũ
+        # chết hẳn).
+        self._face_track_notified &= active_ids
 
     def _check_fall(self, frame, result) -> tuple[bool, tuple[int, int, int, int] | None]:
         """Fall detection port từ Fall_detection.py: với mỗi người có đủ 6
@@ -815,7 +1022,7 @@ class CameraPipeline(QThread):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA,
                     )
 
-        for x1, y1, x2, y2, name, status in self._last_face_boxes:
+        for x1, y1, x2, y2, name, status, _track_id, _in_roi in self._last_face_boxes:
             # BGR: xanh lá = quen, cam/đỏ = Stranger ĐÃ XÁC NHẬN, vàng = chưa
             # đủ căn cứ kết luận (unknown - xem _check_faces) - CHỦ Ý khác
             # màu Stranger để không gây hiểu lầm là đã xác nhận người lạ chỉ
@@ -864,6 +1071,7 @@ class CameraPipeline(QThread):
         occupancy_alert: bool = False,
         known_faces: list[str] | None = None,
         stranger_alert: bool = False,
+        stranger_track_ids: list[int] | None = None,
     ) -> None:
         # Cache lại cho _draw_overlay() dùng - overlay vẽ trên MỌI frame emit
         # (kể cả frame không trùng nhịp AI chạy), nên cần giữ trạng thái cảnh
@@ -885,6 +1093,10 @@ class CameraPipeline(QThread):
                 "occupancy_alert": occupancy_alert,
                 "known_faces": known_faces or [],
                 "stranger_alert": stranger_alert,
+                # track_id của TỪNG người lạ đã xác nhận trong lượt này - xem
+                # pages/liveview_page.py::_log_alarms/pages/dashboard_page.py
+                # (phân biệt 2 người lạ khác nhau, không dồn chung 1 dòng log).
+                "stranger_track_ids": stranger_track_ids or [],
             },
         )
 

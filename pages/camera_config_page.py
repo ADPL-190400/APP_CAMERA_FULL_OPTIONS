@@ -61,6 +61,7 @@ _TR_TEXT_MAP = {
     "check_enable_fire": "Fire Detection",
     "check_enable_fall": "Fall Detection",
     "check_enable_face_recognition": "Face recognition - alert on strangers / recognize known people",
+    "lbl_stranger_repeat_mode": "Repeat Stranger alert",
     "btn_refresh_known_faces": "🔄  Refresh Known Faces",
     "btn_open_pipeline_config": "⚙  Open Pipeline Config",
     "lbl_roi_preview_placeholder": "Click \"Open ROI Editor…\" to draw ROI/Counting Line directly on the camera feed",
@@ -108,6 +109,12 @@ _TR_TITLE_MAP = {
     "group_adv_hardware": "Hardware & Decoder",
 }
 _TR_TOOLTIP_MAP = {
+    "combo_stranger_repeat_mode": (
+        "How to handle the SAME lingering stranger being seen again after briefly turning away/being "
+        "partly hidden. \"Notify once\" only alerts the first time until they leave the frame entirely. "
+        "\"Repeat after grace period\" alerts again if they go quiet for a while and get reconfirmed - "
+        "same behavior as PPE/Fire/Fall/Overcrowding."
+    ),
     "edit_camera_id": (
         "App-generated internal ID used as the lookup key for this camera in DeviceManager - not editable, "
         "and NOT the camera_id sent to the web server (see the \"MAC Address\" field below for that)."
@@ -156,6 +163,7 @@ _TR_COMBO_ITEMS = {
     "combo_inference_quality": ["Fast (320px)", "Balanced (480px)", "Accurate (640px)"],
     "combo_recording_mode": ["Continuous", "On Motion", "On Trigger", "Scheduled"],
     "combo_gpu_device": ["GPU 0 (default)", "GPU 1", "CPU Fallback"],
+    "combo_stranger_repeat_mode": ["Notify once per visit", "Repeat after grace period"],
 }
 _TR_TAB_TITLES = ["Basic", "AI", "ROI", "Trigger", "Recording", "Overlay", "Advanced"]
 
@@ -343,6 +351,9 @@ class CameraConfigPage(QtWidgets.QWidget):
         self.check_enable_fire.setChecked(device.ai.enable_fire)
         self.check_enable_fall.setChecked(device.ai.enable_fall)
         self.check_enable_face_recognition.setChecked(device.ai.enable_face_recognition)
+        self._combo_set_canonical(
+            self.combo_stranger_repeat_mode, "combo_stranger_repeat_mode", device.ai.stranger_repeat_mode
+        )
 
         # --- ROI ---
         self.list_roi.clear()
@@ -404,6 +415,9 @@ class CameraConfigPage(QtWidgets.QWidget):
                 enable_fire=self.check_enable_fire.isChecked(),
                 enable_fall=self.check_enable_fall.isChecked(),
                 enable_face_recognition=self.check_enable_face_recognition.isChecked(),
+                stranger_repeat_mode=self._combo_get_canonical(
+                    self.combo_stranger_repeat_mode, "combo_stranger_repeat_mode"
+                ),
             ),
             recording=RecordingConfig(
                 enabled=self.check_enable_recording.isChecked(),
