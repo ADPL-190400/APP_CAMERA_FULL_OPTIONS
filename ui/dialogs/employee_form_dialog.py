@@ -19,15 +19,29 @@ chèn thêm phím xoá/phím Telex thô để ghép dấu - khiến chuỗi tự
 sai (nhân đôi ký tự, hoặc mất chữ khi cố lọc trùng bằng thời gian). Trong
 khi đó bản thân Ô QLineEdit đang focus vẫn luôn hiển thị ĐÚNG nội dung cuối
 cùng (Windows/Unikey xử lý đúng ở tầng widget) - nên bản này đọc THẲNG từ
-`.text()` của ô đang chứa chuỗi quét (qua signal textChanged, gắn cho TẤT
-CẢ QLineEdit trong form) thay vì tự dựng lại - không còn phụ thuộc việc
-"replay" đúng từng phím thô/IME nữa.
+`.text()` của ô đang chứa chuỗi quét (qua signal textChanged, gắn cho các ô
+QLineEdit trong form - KHÔNG gồm edit_gender/edit_dob, xem _build_ui) thay
+vì tự dựng lại - không còn phụ thuộc việc "replay" đúng từng phím thô/IME
+nữa.
 
 Nhận diện điểm BẮT ĐẦU 1 mã CCCD trong text hiện tại của ô bằng NỘI DUNG
 (tìm mẫu "12 số rồi tới dấu |" - _CCCD_START_RE - luôn lấy occurrence CUỐI
 CÙNG, bỏ qua phần gõ tay/rác phía trước) rồi thử khớp parse_cccd_scan() -
 "quét xong" là tự fill ngay, không cần đợi phím Enter (một số đầu đọc không
-gửi) hay tín hiệu nào khác."""
+gửi) hay tín hiệu nào khác.
+
+Sau khi quét THÀNH CÔNG (parse đủ cấu trúc CCCD), form CHUYỂN SANG CHỈ XEM
+(_lock_scanned_fields) - các field lấy được từ CCCD bị khoá không cho sửa
+tay nữa, tránh gõ nhầm đè lên dữ liệu đã quét đúng. Muốn nhập tay trở lại
+phải bấm nút "Clear Scanned Info" (_on_clear_scan) để xoá sạch + mở khoá.
+
+(Đã thử nghiệm đường quét thứ 2 qua cổng COM/Serial - đọc thẳng byte, không
+qua bàn phím/IME - nhưng đầu đọc thực tế test (Tera HW0002) có bug firmware
+thật: tự làm rớt mất một nhóm lớn ký tự tiếng Việt (nhóm ký tự có dấu "móc"
+ư/ơ và nhóm chồng 2 dấu như ạ/ấ/ổ/ề/ệ) trước khi dữ liệu ra khỏi máy quét,
+xảy ra giống nhau ở cả chế độ UTF-8 lẫn Raw data - không sửa được từ phía
+phần mềm. Đã bỏ hướng này, quay lại dùng đúng 1 đường HID Keyboard wedge ở
+trên.)"""
 from __future__ import annotations
 
 import re
@@ -35,7 +49,7 @@ from datetime import datetime
 from typing import Optional
 
 from PyQt6 import QtWidgets
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QDate, Qt
 
 from ui.ui_menu.i18n import tr
 
@@ -45,12 +59,17 @@ from ui.ui_menu.i18n import tr
 _DIALOG_QSS = """
 QDialog { background-color: #0d0f14; }
 QLabel { color: #c0ccdd; font-size: 13px; }
-QLineEdit {
+QLineEdit, QComboBox, QDateEdit {
     background-color: #151c2a; color: #e0e6f0; border: 1px solid #1a2438;
     border-radius: 8px; padding: 10px 12px; font-size: 14px; min-height: 22px;
 }
-QLineEdit:focus { border-color: #00d4ff; }
-QLineEdit:disabled { color: #3a5070; background-color: #0a0c12; }
+QLineEdit:focus, QComboBox:focus, QDateEdit:focus { border-color: #00d4ff; }
+QLineEdit:disabled, QComboBox:disabled, QDateEdit:disabled { color: #3a5070; background-color: #0a0c12; }
+QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 22px; }
+QComboBox QAbstractItemView {
+    background-color: #151c2a; color: #e0e6f0; border: 1px solid #1a2438;
+    selection-background-color: #00d4ff; selection-color: #06141f;
+}
 """
 _OK_BTN_QSS = (
     "QPushButton { background-color: #0e2040; color: #00d4ff; border: 1px solid #00d4ff;"
@@ -62,8 +81,14 @@ _CANCEL_BTN_QSS = (
     " border-radius: 10px; font-size: 14px; padding: 8px 22px; }"
     "QPushButton:hover { color: #ff4444; border-color: #ff4444; }"
 )
+_CLEAR_SCAN_BTN_QSS = (
+    "QPushButton { background-color: transparent; color: #ffaa00; border: 1px solid #3a3010;"
+    " border-radius: 8px; font-size: 12px; padding: 5px 12px; }"
+    "QPushButton:hover { color: #06141f; background-color: #ffaa00; }"
+)
 _SCAN_HINT_QSS = "color: #7a8aaa; font-size: 11px;"
 _SCAN_STATUS_OK_QSS = "color: #00e676; font-size: 11px; font-weight: 600;"
+_SCAN_STATUS_LOCKED_QSS = "color: #ffaa00; font-size: 11px; font-weight: 600;"
 
 # Số field tối thiểu của chuỗi QR CCCD chuẩn (7 field có nghĩa - so_cccd,
 # so_cmnd_cu, ho_ten, ngay_sinh, gioi_tinh, dia_chi, ngay_cap - cộng thêm
@@ -78,6 +103,65 @@ _CCCD_START_RE = re.compile(r"\d{12}\|")
 # bộ dữ liệu ngay sau khi đã gửi đủ - xem _locked_field/_on_field_text_changed)
 # - TẮT debug, chỉ bật lại (True) nếu cần dò lỗi quét CCCD lần nữa.
 _CCCD_DEBUG = False
+
+# Gender: 2 lựa chọn cố định thay vì gõ tay tự do - value lưu/gửi backend
+# LUÔN là tiếng Anh thường (không đổi theo ngôn ngữ hiển thị hiện tại),
+# label hiển thị dịch qua tr() theo _GENDER_LABEL_KEYS. Xem _set_gender/_gender_value.
+_GENDER_VALUES = ["male", "female"]
+_GENDER_LABEL_KEYS = {"male": "Male", "female": "Female"}
+
+
+def _normalize_gender(raw: str) -> str:
+    """Chuẩn hoá 1 chuỗi gender bất kỳ (từ CCCD - "Nam"/"Nữ" tiếng Việt, hoặc
+    từ backend - có thể đã lưu "male"/"female"/"Nam"/"Nữ" từ bản cũ khi field
+    này còn là ô gõ tay tự do) về 1 trong 2 canonical value. Không khớp được
+    -> "male" (an toàn, không rơi vào None/lỗi - mặc định cũng khớp giá trị
+    đầu tiên trong _GENDER_VALUES)."""
+    text = (raw or "").strip().lower()
+    if text in ("female", "nữ", "nu", "f", "nữ giới", "woman"):
+        return "female"
+    return "male"
+
+
+# Ngày sinh: QDateEdit không có khái niệm "rỗng" như QLineEdit - dùng
+# _DOB_MIN_DATE làm "giá trị đặc biệt" (setSpecialValueText) để biểu diễn
+# "chưa chọn ngày sinh", xem _build_ui/_dob_value.
+_DOB_MIN_DATE = QDate(1900, 1, 1)
+
+
+def _qdate_from_iso(dob_iso: str) -> QDate:
+    """Backend trả "dob" theo ISO 8601 (có thể kèm giờ/timezone, vd
+    "2000-04-19T00:00:00.000Z") khi sửa thông tin 1 nhân viên đã có sẵn -
+    parse thành QDate để gán cho edit_dob. Không parse được/rỗng ->
+    _DOB_MIN_DATE (hiển thị "Chưa chọn")."""
+    text = (dob_iso or "").strip()
+    if not text:
+        return _DOB_MIN_DATE
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(text, fmt)
+            return QDate(dt.year, dt.month, dt.day)
+        except ValueError:
+            continue
+    return _DOB_MIN_DATE
+
+
+def _qdate_from_ddmmyyyy(dob_ddmmyyyy: str) -> QDate:
+    """Ngày sinh lấy từ CCCD (parse_cccd_scan trả "DD/MM/YYYY") -> QDate."""
+    try:
+        dt = datetime.strptime((dob_ddmmyyyy or "").strip(), "%d/%m/%Y")
+        return QDate(dt.year, dt.month, dt.day)
+    except (ValueError, AttributeError):
+        return _DOB_MIN_DATE
+
+
+def _qdate_to_iso_or_none(date: QDate) -> Optional[str]:
+    """Chiều ngược lại - QDate hiện tại của edit_dob -> ISO 8601 gửi backend
+    (post_employee trả lỗi 400 nếu gửi sai định dạng). _DOB_MIN_DATE nghĩa
+    là "chưa chọn" -> None (bỏ trường, giống hành vi để trống trước đây)."""
+    if date == _DOB_MIN_DATE:
+        return None
+    return date.toString("yyyy-MM-dd")
 
 
 def parse_cccd_scan(raw: str) -> Optional[dict]:
@@ -111,7 +195,7 @@ def parse_cccd_scan(raw: str) -> Optional[dict]:
     first_name = name_words[-1]
     last_name = " ".join(name_words[:-1])
 
-    # dd/mm/yyyy - khớp placeholder "DD/MM/YYYY" của edit_dob.
+    # dd/mm/yyyy - parse thành QDate ở _apply_scanned_data (xem _qdate_from_ddmmyyyy).
     dob_raw = parts[3].strip()
     dob_formatted = ""
     if len(dob_raw) == 8 and dob_raw.isdigit():
@@ -125,35 +209,6 @@ def parse_cccd_scan(raw: str) -> Optional[dict]:
         "gender": parts[4].strip() if len(parts) > 4 else "",
         "address": parts[5].strip() if len(parts) > 5 else "",
     }
-
-
-def _dob_to_iso(dob_ddmmyyyy: str) -> Optional[str]:
-    """edit_dob hiển thị/nhập theo "DD/MM/YYYY" nhưng backend đòi ISO 8601
-    (post_employee trả lỗi 400 "dob must be a valid ISO 8601 date string"
-    nếu gửi thẳng "DD/MM/YYYY") - chuyển sang "YYYY-MM-DD" trước khi gửi.
-    Không parse được (rỗng/sai định dạng) -> None, bỏ trường thay vì gửi giá
-    trị chắc chắn bị backend từ chối."""
-    try:
-        return datetime.strptime(dob_ddmmyyyy.strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
-    except (ValueError, AttributeError):
-        return None
-
-
-def _dob_from_iso(dob_iso: str) -> str:
-    """Chiều ngược lại _dob_to_iso - backend trả "dob" theo ISO 8601 (có thể
-    kèm giờ/timezone, vd "2000-04-19T00:00:00.000Z") khi sửa thông tin 1
-    nhân viên đã có sẵn - chuyển về "DD/MM/YYYY" để khớp placeholder/định
-    dạng edit_dob đang dùng. Không parse được -> trả nguyên chuỗi gốc (đỡ
-    mất thông tin hiển thị hơn là để trống)."""
-    text = (dob_iso or "").strip()
-    if not text:
-        return ""
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(text, fmt).strftime("%d/%m/%Y")
-        except ValueError:
-            continue
-    return text
 
 
 class EmployeeFormDialog(QtWidgets.QDialog):
@@ -170,6 +225,11 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         # đã fill đúng trước đó).
         self._locked_field: Optional[QtWidgets.QLineEdit] = None
         self._locked_value: str = ""
+
+        # True SAU KHI 1 lượt quét CCCD đã fill đủ thông tin - toàn bộ field
+        # lấy từ CCCD chuyển sang chỉ xem (xem _lock_scanned_fields), chỉ mở
+        # lại được bằng nút "Clear Scanned Info" (_on_clear_scan).
+        self._scan_locked = False
 
         self._build_ui()
         if employee:
@@ -191,6 +251,13 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         self.lbl_scan_status.setWordWrap(True)
         layout.addRow(self.lbl_scan_status)
 
+        self.btn_clear_scan = QtWidgets.QPushButton(tr("🗑  Clear Scanned Info"))
+        self.btn_clear_scan.setStyleSheet(_CLEAR_SCAN_BTN_QSS)
+        self.btn_clear_scan.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear_scan.clicked.connect(self._on_clear_scan)
+        self.btn_clear_scan.setVisible(False)
+        layout.addRow(self.btn_clear_scan)
+
         self.edit_code = QtWidgets.QLineEdit()
         self.edit_code.setPlaceholderText("NV001")
         layout.addRow(tr("Employee Code *"), self.edit_code)
@@ -201,12 +268,18 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         self.edit_first_name = QtWidgets.QLineEdit()
         layout.addRow(tr("First Name *"), self.edit_first_name)
 
-        self.edit_gender = QtWidgets.QLineEdit()
-        self.edit_gender.setPlaceholderText("Male / Female")
+        self.edit_gender = QtWidgets.QComboBox()
+        for value in _GENDER_VALUES:
+            self.edit_gender.addItem(tr(_GENDER_LABEL_KEYS[value]), userData=value)
         layout.addRow(tr("Gender"), self.edit_gender)
 
-        self.edit_dob = QtWidgets.QLineEdit()
-        self.edit_dob.setPlaceholderText("DD/MM/YYYY")
+        self.edit_dob = QtWidgets.QDateEdit()
+        self.edit_dob.setDisplayFormat("dd/MM/yyyy")
+        self.edit_dob.setCalendarPopup(True)
+        self.edit_dob.setMinimumDate(_DOB_MIN_DATE)
+        self.edit_dob.setMaximumDate(QDate.currentDate())
+        self.edit_dob.setSpecialValueText(tr("Not set"))
+        self.edit_dob.setDate(_DOB_MIN_DATE)
         layout.addRow(tr("Date of Birth"), self.edit_dob)
 
         self.edit_address = QtWidgets.QLineEdit()
@@ -252,13 +325,15 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
-        # Quét mã CCCD - xem module docstring: gắn textChanged cho TẤT CẢ ô,
-        # đọc text ĐÃ được Qt/Windows xử lý xong (đúng cả khi có IME tiếng
-        # Việt can thiệp) thay vì tự dựng lại từ QKeyEvent thô.
+        # Quét mã CCCD - xem module docstring: gắn textChanged cho các ô
+        # QLineEdit trong form (đọc text ĐÃ được Qt/Windows xử lý xong, đúng
+        # cả khi có IME tiếng Việt can thiệp, thay vì tự dựng lại từ
+        # QKeyEvent thô). edit_gender (QComboBox)/edit_dob (QDateEdit) không
+        # nhận text tự do nên không tham gia cơ chế này - luồng quét bình
+        # thường luôn bắt đầu từ edit_code (Qt tự focus ô này khi mở dialog).
         for edit in (
             self.edit_code, self.edit_first_name, self.edit_last_name,
-            self.edit_gender, self.edit_dob, self.edit_address,
-            self.edit_phone, self.edit_email,
+            self.edit_address, self.edit_phone, self.edit_email,
         ):
             edit.textChanged.connect(self._on_field_text_changed)
 
@@ -277,6 +352,9 @@ class EmployeeFormDialog(QtWidgets.QDialog):
     # ── Quét mã CCCD (đọc text đã hoàn chỉnh của ô đang gõ - xem module
     # docstring, KHÔNG tự dựng lại từ QKeyEvent thô nữa) ─────────────────────
     def _on_field_text_changed(self, text: str) -> None:
+        if self._scan_locked:
+            return  # form đang ở chế độ chỉ xem sau 1 lượt quét - bỏ qua mọi thay đổi (xem _lock_scanned_fields)
+
         sender = self.sender()
 
         # Bảo vệ ô VỪA được fill đúng từ 1 lượt quét trước đó (khớp
@@ -311,8 +389,7 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         if _CCCD_DEBUG:
             field_names = {
                 self.edit_code: "code", self.edit_first_name: "first_name",
-                self.edit_last_name: "last_name", self.edit_gender: "gender",
-                self.edit_dob: "dob", self.edit_address: "address",
+                self.edit_last_name: "last_name", self.edit_address: "address",
                 self.edit_phone: "phone", self.edit_email: "email",
             }
             print(f"[CCCD-DEBUG] field={field_names.get(sender, sender)!r} text={text!r}", flush=True)
@@ -334,8 +411,11 @@ class EmployeeFormDialog(QtWidgets.QDialog):
             sender.blockSignals(False)
             return
 
-        # Khoá lại field VỪA fill đúng (code/first_name/last_name/dob/
-        # gender/address) - xem đầu hàm.
+        # Khoá lại field VỪA fill đúng (code/first_name/last_name/address) -
+        # xem đầu hàm. Chỉ còn 4 field text tham gia nhánh này (gender/dob
+        # không còn là QLineEdit) nhưng cũng sắp bị khoá cứng luôn ngay sau
+        # đây (_lock_scanned_fields), nên vô hại nếu sender không khớp field
+        # nào trong list.
         self._locked_field = sender
         self._locked_value = sender.text()
 
@@ -343,27 +423,98 @@ class EmployeeFormDialog(QtWidgets.QDialog):
         """Chuỗi quét MỚI (khác thẻ trước đó) -> GHI ĐÈ toàn bộ field liên
         quan, không merge/giữ lại giá trị dở dang trước đó - đúng yêu cầu
         "có chuỗi thông tin mới khác thông tin cũ thì xoá hiện tại và fill
-        mới"."""
+        mới". Sau khi fill xong, form CHUYỂN SANG CHỈ XEM (_lock_scanned_fields) -
+        quét lại thẻ khác trong lúc đang khoá là không thể (field bị disable
+        không nhận text nữa), phải bấm "Clear Scanned Info" trước."""
         if not self._is_edit:
             self.edit_code.setText(data["code"])
         self.edit_first_name.setText(data["first_name"])
         self.edit_last_name.setText(data["last_name"])
-        self.edit_dob.setText(data["dob"])
-        self.edit_gender.setText(data["gender"])
+        self.edit_dob.setDate(_qdate_from_ddmmyyyy(data["dob"]))
+        self._set_gender(_normalize_gender(data["gender"]))
         self.edit_address.setText(data["address"])
-        self.lbl_scan_status.setText(tr("✓ Information filled from the scanned card."))
-        self.lbl_scan_status.setStyleSheet(_SCAN_STATUS_OK_QSS)
+        self._lock_scanned_fields()
+
+    # ── Khoá / mở khoá sau khi quét ──────────────────────────────────────
+    def _lock_scanned_fields(self) -> None:
+        self._scan_locked = True
+        self._locked_field = None
+        self._locked_value = ""
+        for widget in (self.edit_first_name, self.edit_last_name, self.edit_gender, self.edit_dob, self.edit_address):
+            widget.setEnabled(False)
+        if not self._is_edit:
+            self.edit_code.setEnabled(False)
+        self.btn_clear_scan.setVisible(True)
+        self.lbl_scan_status.setText(
+            tr("🔒 Information locked from the scanned card. Use \"Clear Scanned Info\" to edit manually.")
+        )
+        self.lbl_scan_status.setStyleSheet(_SCAN_STATUS_LOCKED_QSS)
+
+    def _on_clear_scan(self) -> None:
+        """Bấm "Clear Scanned Info" - xoá sạch các field lấy từ CCCD và mở
+        khoá lại toàn bộ, đưa form về đúng trạng thái ban đầu (trống, có thể
+        gõ tay hoặc quét lại thẻ khác)."""
+        self._scan_locked = False
+        self._locked_field = None
+        self._locked_value = ""
+
+        if not self._is_edit:
+            self.edit_code.clear()
+            self.edit_code.setEnabled(True)
+        self.edit_first_name.clear()
+        self.edit_last_name.clear()
+        self._set_gender("male")
+        self.edit_dob.setDate(_DOB_MIN_DATE)
+        self.edit_address.clear()
+        for widget in (self.edit_first_name, self.edit_last_name, self.edit_gender, self.edit_dob, self.edit_address):
+            widget.setEnabled(True)
+
+        self.btn_clear_scan.setVisible(False)
+        self.lbl_scan_status.setText(
+            tr(
+                "💳 Scan an ID card at any time to auto-fill "
+                "Employee Code/First Name/Last Name/DOB/Gender/Address, or enter manually below."
+            )
+        )
+        self.lbl_scan_status.setStyleSheet(_SCAN_HINT_QSS)
+        self.edit_code.setFocus()
+
+    # ── Gender combobox helpers (value canonical tiếng Anh, không đổi theo
+    # ngôn ngữ hiển thị - xem _GENDER_VALUES) ────────────────────────────
+    def _set_gender(self, value: str) -> None:
+        idx = self.edit_gender.findData(value)
+        self.edit_gender.setCurrentIndex(idx if idx >= 0 else 0)
+
+    def _gender_value(self) -> Optional[str]:
+        return self.edit_gender.currentData()
 
     # ── Sửa/điền tay ─────────────────────────────────────────────────────
     def _fill(self, employee: dict) -> None:
         self.edit_code.setText(str(employee.get("code") or employee.get("employee_code") or ""))
         self.edit_first_name.setText(str(employee.get("first_name") or ""))
         self.edit_last_name.setText(str(employee.get("last_name") or ""))
-        self.edit_gender.setText(str(employee.get("gender") or ""))
-        self.edit_dob.setText(_dob_from_iso(str(employee.get("dob") or "")))
+        self._set_gender(_normalize_gender(str(employee.get("gender") or "")))
+        self.edit_dob.setDate(_qdate_from_iso(str(employee.get("dob") or "")))
         self.edit_address.setText(str(employee.get("address") or ""))
         self.edit_phone.setText(str(employee.get("phone") or ""))
         self.edit_email.setText(str(employee.get("email") or ""))
+
+        # Nhân viên ĐÃ đăng ký - danh tính (Họ/Tên/Ngày sinh/Giới tính) không
+        # cho sửa tay trong màn "Sửa thông tin" nữa, chỉ còn Địa chỉ/SĐT/Email
+        # sửa được (edit_code đã bị khoá cứng từ _build_ui rồi, không cần lặp
+        # lại ở đây). KHÔNG dùng chung _lock_scanned_fields() - cơ chế đó còn
+        # khoá cả Address + hiện nút "Clear Scanned Info" để XOÁ TRẮNG, không
+        # hợp với ngữ cảnh này (đang xem dữ liệu đã lưu, không phải vừa quét
+        # xong 1 thẻ mới).
+        for widget in (self.edit_last_name, self.edit_first_name, self.edit_gender, self.edit_dob):
+            widget.setEnabled(False)
+        self.lbl_scan_status.setText(
+            tr(
+                "🔒 Name, date of birth and gender cannot be changed after registration. "
+                "Only address, phone and email can be updated."
+            )
+        )
+        self.lbl_scan_status.setStyleSheet(_SCAN_STATUS_LOCKED_QSS)
 
     def _on_accept(self) -> None:
         if not self.edit_code.text().strip() or not self.edit_first_name.text().strip() or not self.edit_last_name.text().strip():
@@ -378,8 +529,8 @@ class EmployeeFormDialog(QtWidgets.QDialog):
             "code": self.edit_code.text().strip(),
             "first_name": self.edit_first_name.text().strip(),
             "last_name": self.edit_last_name.text().strip(),
-            "gender": self.edit_gender.text().strip() or None,
-            "dob": _dob_to_iso(self.edit_dob.text()),
+            "gender": self._gender_value(),
+            "dob": _qdate_to_iso_or_none(self.edit_dob.date()),
             "address": self.edit_address.text().strip() or None,
             "phone": self.edit_phone.text().strip() or None,
             "email": self.edit_email.text().strip() or None,

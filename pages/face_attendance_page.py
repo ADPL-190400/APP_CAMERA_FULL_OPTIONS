@@ -195,7 +195,7 @@ class FaceCaptureWorker(QThread):
             stable = self._known_streak >= _STATE_STREAK_REQUIRED
             if stable and self._attendance_enabled and emp_id is not None:
                 if self._attendance_dedup.is_new_occurrence(emp_id):
-                    self._checkin(frame, emp_id)
+                    self._checkin(frame, emp_id, employee)
 
         self.face_state_changed.emit({
             "employee": employee,
@@ -226,11 +226,16 @@ class FaceCaptureWorker(QThread):
         mid_x = (left_eye[0] + right_eye[0]) / 2.0
         return float((nose[0] - mid_x) / eye_dist)
 
-    def _checkin(self, frame: np.ndarray, employee_id) -> None:
+    def _checkin(self, frame: np.ndarray, employee_id, employee: dict) -> None:
         # Ghi Event Log (SQLite, cục bộ) TRƯỚC, không phụ thuộc có gửi web
         # được hay không - vẫn muốn có lịch sử điểm danh cục bộ dù camera
-        # chưa nhập MAC/chưa tra được web_camera_id.
-        EventStore.instance().add_event(self._device_id, self._device_name, EventKind.FACE_CHECKIN, frame)
+        # chưa nhập MAC/chưa tra được web_camera_id. detail = tên hiển thị
+        # trên Event Log (cột "Detail"), không phải khoá tra cứu - chỉ để
+        # xem lại nhanh ai vừa điểm danh mà không cần mở ảnh.
+        name = f"{employee.get('last_name') or ''} {employee.get('first_name') or ''}".strip()
+        EventStore.instance().add_event(
+            self._device_id, self._device_name, EventKind.FACE_CHECKIN, frame, detail=name
+        )
 
         if not self._web_camera_id:
             print("[FaceApp] _web_camera_id rỗng - bỏ qua gửi web (chưa tra được camera_id từ MAC, xem Camera Config)")

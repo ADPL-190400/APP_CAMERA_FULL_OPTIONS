@@ -245,6 +245,8 @@ class CameraCard(QFrame):
             alerts.append(tr("⚠ PPE"))
         if m.stranger_alert:
             alerts.append(tr("🧑‍❓ STRANGER"))
+        if m.occupancy_alert:
+            alerts.append(tr("👥 OVER LIMIT"))
         self._lbl_alert.setVisible(online and bool(alerts))
         if alerts:
             self._lbl_alert.setText("  ".join(alerts))

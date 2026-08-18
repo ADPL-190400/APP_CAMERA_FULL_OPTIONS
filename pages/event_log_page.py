@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from PyQt6 import uic, QtWidgets
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap, QIcon
-from PyQt6.QtWidgets import QTableWidgetItem, QDialog, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QHeaderView, QTableWidgetItem, QDialog, QVBoxLayout, QLabel
 
 from core.device_manager import DeviceManager
 from core.event_store import EventStore
@@ -29,8 +29,21 @@ COL_IMAGE = 0
 COL_TIME = 1
 COL_CAMERA = 2
 COL_KIND = 3
+COL_DETAIL = 4
 
 _THUMB_SIZE = QSize(96, 54)
+
+# Chiều rộng cột (px) - Fixed cho COL_IMAGE (đúng khít _THUMB_SIZE, không
+# cần người dùng tự kéo), Interactive cho các cột nội dung ngắn/vừa (vẫn
+# kéo tay chỉnh lại được nếu muốn), COL_DETAIL (cột cuối) tự giãn lấp phần
+# còn lại nhờ horizontalHeaderStretchLastSection (xem event_log_page.ui) -
+# không cần khai báo width riêng cho cột đó.
+_COL_WIDTHS = {
+    COL_IMAGE: _THUMB_SIZE.width() + 14,
+    COL_TIME: 150,
+    COL_CAMERA: 150,
+    COL_KIND: 130,
+}
 
 # Danh sách khớp ĐÚNG thứ tự item trong combo_filter_time/combo_filter_kind
 # (xem retranslate_ui) - dùng INDEX làm cầu nối thay vì currentText(), vì
@@ -41,7 +54,9 @@ _TIME_FILTER_VALUES: list[timedelta | None] = [
     None, timedelta(days=1), timedelta(days=7), timedelta(days=30),
 ]
 
-_KIND_FILTER_KEYS = ["All types", "PPE Violation", "Fire / Smoke", "Fall", "Stranger", "Check-in"]
+_KIND_FILTER_KEYS = [
+    "All types", "PPE Violation", "Fire / Smoke", "Fall", "Stranger", "Check-in", "Overcrowding", "Recognized",
+]
 _KIND_FILTER_VALUES: list[EventKind | None] = [
     None,
     EventKind.PPE_VIOLATION,
@@ -49,6 +64,8 @@ _KIND_FILTER_VALUES: list[EventKind | None] = [
     EventKind.FALL_ALERT,
     EventKind.STRANGER_ALERT,
     EventKind.FACE_CHECKIN,
+    EventKind.OCCUPANCY_ALERT,
+    EventKind.FACE_RECOGNIZED,
 ]
 
 _PAGE_SIZE = 50
@@ -65,6 +82,12 @@ class EventLogPage(QtWidgets.QWidget):
         self._current_page = 0  # reset về 0 mỗi khi đổi filter - xem _on_filter_changed
 
         self.table_events.setIconSize(_THUMB_SIZE)
+        header = self.table_events.horizontalHeader()
+        header.setSectionResizeMode(COL_IMAGE, QHeaderView.ResizeMode.Fixed)
+        for col in (COL_TIME, COL_CAMERA, COL_KIND):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+        for col, width in _COL_WIDTHS.items():
+            self.table_events.setColumnWidth(col, width)
         self.table_events.setMouseTracking(True)
         self.table_events.cellEntered.connect(self._on_cell_entered)
         self.table_events.itemClicked.connect(self._on_row_clicked)
@@ -98,7 +121,7 @@ class EventLogPage(QtWidgets.QWidget):
         self.btn_prev_page.setText(tr("◀ Prev"))
         self.btn_next_page.setText(tr("Next ▶"))
         self.table_events.setHorizontalHeaderLabels(
-            [tr("Image"), tr("Time"), tr("Camera"), tr("Alert Type")]
+            [tr("Image"), tr("Time"), tr("Camera"), tr("Event Type"), tr("Detail")]
         )
         self.combo_filter_camera.setItemText(0, tr("All cameras"))
         for combo, keys in (
@@ -193,6 +216,7 @@ class EventLogPage(QtWidgets.QWidget):
             table.setItem(
                 row, COL_KIND, QTableWidgetItem(tr(EVENT_KIND_LABELS.get(event.kind, event.kind.value)))
             )
+            table.setItem(row, COL_DETAIL, QTableWidgetItem(event.detail))
 
     def _on_cell_entered(self, row: int, column: int) -> None:
         cursor = Qt.CursorShape.PointingHandCursor if column == COL_IMAGE else Qt.CursorShape.ArrowCursor

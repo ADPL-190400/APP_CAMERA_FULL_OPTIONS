@@ -518,6 +518,28 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Monitor current occupancy  (ROI recommended)",
         "ja": "現在の在室人数を監視（ROI推奨）",
     },
+    "Alert if occupancy exceeds": {
+        "vi": "Cảnh báo nếu số người vượt quá",
+        "en": "Alert if occupancy exceeds",
+        "ja": "在室人数がこれを超えたら警告",
+    },
+    "0 = no alert (unlimited). When the number of people currently in view goes above this number, an "
+    "alert is raised (SYSTEM ALARMS + Event Log) - it will not repeat while the count stays above the "
+    "threshold continuously, only again after it drops back down and exceeds it again.": {
+        "vi": "0 = không cảnh báo (không giới hạn). Khi số người hiện có trong khung hình vượt quá số này, "
+        "hệ thống sẽ tạo cảnh báo (SYSTEM ALARMS + Event Log) - không lặp lại liên tục khi vẫn còn vượt "
+        "ngưỡng, chỉ báo lại khi tụt xuống dưới ngưỡng rồi vượt lại lần nữa.",
+        "en": "0 = no alert (unlimited). When the number of people currently in view goes above this number, an "
+        "alert is raised (SYSTEM ALARMS + Event Log) - it will not repeat while the count stays above the "
+        "threshold continuously, only again after it drops back down and exceeds it again.",
+        "ja": "0 = 警告なし（無制限）。現在画面内の人数がこの数を超えると警告が発生します（SYSTEM ALARMS + "
+        "Event Log）- 閾値を超え続けている間は繰り返さず、一度下回ってから再度超えた時のみ再通知します。",
+    },
+    "Off": {"vi": "Tắt", "en": "Off", "ja": "オフ"},
+    "👥 OVER LIMIT": {"vi": "👥 VƯỢT NGƯỠNG", "en": "👥 OVER LIMIT", "ja": "👥 上限超過"},
+    "👥 Overcrowding": {"vi": "👥 Quá đông người", "en": "👥 Overcrowding", "ja": "👥 過密"},
+    "Overcrowding": {"vi": "Quá đông người", "en": "Overcrowding", "ja": "過密"},
+    "Recognized": {"vi": "Nhận diện", "en": "Recognized", "ja": "認識"},
     "PPE monitoring  (requires drawing an ROI)": {
         "vi": "Giám sát đồ bảo hộ PPE  (cần vẽ ROI)",
         "en": "PPE monitoring  (requires drawing an ROI)",
@@ -529,6 +551,24 @@ STRINGS: dict[str, dict[str, str]] = {
         "vi": "Nhận diện khuôn mặt - cảnh báo người lạ / nhận diện người quen",
         "en": "Face recognition - alert on strangers / recognize known people",
         "ja": "顔認識 - 不審者を警告 / 既知の人物を認識",
+    },
+    "Face match sensitivity": {
+        "vi": "Độ nhạy nhận diện khuôn mặt",
+        "en": "Face match sensitivity",
+        "ja": "顔認識の感度",
+    },
+    "How closely a detected face must match a known person to be recognized. Higher = stricter (fewer "
+    "false matches, but may miss known people at bad angles/lighting). Lower = looser (recognizes known "
+    "people more easily, but raises the risk of confusing 2 similar-looking people).": {
+        "vi": "Mức độ tương đồng tối thiểu để coi 1 khuôn mặt phát hiện được là khớp với người quen. Cao "
+        "hơn = chặt hơn (ít nhận nhầm 2 người giống nhau, nhưng dễ bỏ sót người quen ở góc/ánh sáng xấu). "
+        "Thấp hơn = lỏng hơn (nhận ra người quen dễ hơn, nhưng dễ nhầm giữa 2 người trông giống nhau hơn).",
+        "en": "How closely a detected face must match a known person to be recognized. Higher = stricter "
+        "(fewer false matches, but may miss known people at bad angles/lighting). Lower = looser "
+        "(recognizes known people more easily, but raises the risk of confusing 2 similar-looking people).",
+        "ja": "検出した顔が既知の人物とどれだけ一致すれば認識するか。高いほど厳格（誤認識は減るが、角度や照"
+        "明が悪いと既知の人物を見逃しやすい）。低いほど緩やか（既知の人物を認識しやすいが、似た顔の2人を混"
+        "同するリスクが上がる）。",
     },
     "🔄  Refresh Known Faces": {"vi": "🔄  Làm mới danh sách khuôn mặt", "en": "🔄  Refresh Known Faces", "ja": "🔄  既知の顔を更新"},
     "Known faces: not loaded": {"vi": "Khuôn mặt đã biết: chưa tải", "en": "Known faces: not loaded", "ja": "既知の顔: 未読込"},
@@ -759,7 +799,8 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "Image": {"vi": "Ảnh", "en": "Image", "ja": "画像"},
     "Time": {"vi": "Thời gian", "en": "Time", "ja": "時刻"},
-    "Alert Type": {"vi": "Loại cảnh báo", "en": "Alert Type", "ja": "アラート種別"},
+    "Event Type": {"vi": "Loại sự kiện", "en": "Event Type", "ja": "イベント種別"},
+    "Detail": {"vi": "Chi tiết", "en": "Detail", "ja": "詳細"},
     "Evidence Image": {"vi": "Ảnh bằng chứng", "en": "Evidence Image", "ja": "証拠画像"},
     "Event Log": {"vi": "Nhật ký sự kiện", "en": "Event Log", "ja": "イベントログ"},
 
@@ -964,6 +1005,8 @@ STRINGS: dict[str, dict[str, str]] = {
     "First Name *": {"vi": "Tên *", "en": "First Name *", "ja": "名 *"},
     "Last Name *": {"vi": "Họ *", "en": "Last Name *", "ja": "姓 *"},
     "Gender": {"vi": "Giới tính", "en": "Gender", "ja": "性別"},
+    "Male": {"vi": "Nam", "en": "Male", "ja": "男性"},
+    "Female": {"vi": "Nữ", "en": "Female", "ja": "女性"},
     "Date of Birth": {"vi": "Ngày sinh", "en": "Date of Birth", "ja": "生年月日"},
     "Address": {"vi": "Địa chỉ", "en": "Address", "ja": "住所"},
     "Phone Number": {"vi": "Số điện thoại", "en": "Phone Number", "ja": "電話番号"},
@@ -972,6 +1015,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "vi": "✓ Đã điền thông tin từ thẻ vừa quét.",
         "en": "✓ Information filled from the scanned card.",
         "ja": "✓ スキャンしたカードから情報を入力しました。",
+    },
+    "🗑  Clear Scanned Info": {
+        "vi": "🗑  Xoá thông tin đã quét",
+        "en": "🗑  Clear Scanned Info",
+        "ja": "🗑  スキャン情報を消去",
+    },
+    "🔒 Information locked from the scanned card. Use \"Clear Scanned Info\" to edit manually.": {
+        "vi": "🔒 Thông tin đã khoá theo thẻ vừa quét. Bấm \"Xoá thông tin đã quét\" để tự sửa tay.",
+        "en": "🔒 Information locked from the scanned card. Use \"Clear Scanned Info\" to edit manually.",
+        "ja": "🔒 スキャンしたカードの情報はロックされています。手動で編集するには「スキャン情報を消去」を使用してください。",
+    },
+    "🔒 Name, date of birth and gender cannot be changed after registration. Only address, phone and email can be updated.": {
+        "vi": "🔒 Họ, Tên, Ngày sinh và Giới tính không thể sửa sau khi đã đăng ký. Chỉ Địa chỉ, SĐT và Email có thể cập nhật.",
+        "en": "🔒 Name, date of birth and gender cannot be changed after registration. Only address, phone and email can be updated.",
+        "ja": "🔒 登録後は氏名・生年月日・性別を変更できません。住所・電話番号・メールアドレスのみ更新可能です。",
     },
     "Missing Information": {"vi": "Thiếu thông tin", "en": "Missing Information", "ja": "情報が不足しています"},
     "Please fill in Employee Code, First Name and Last Name.": {
@@ -1073,10 +1131,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Detection threshold for vest/helmet",
         "ja": "ベスト/ヘルメット検出の閾値",
     },
-    "Detection threshold for fire/smoke": {
-        "vi": "Ngưỡng nhận diện cháy/khói",
-        "en": "Detection threshold for fire/smoke",
-        "ja": "火災/煙検出の閾値",
+    "Detection threshold for fire/smoke (fire_detection_new.pt model)": {
+        "vi": "Ngưỡng nhận diện cháy/khói (model fire_detection_new.pt)",
+        "en": "Detection threshold for fire/smoke (fire_detection_new.pt model)",
+        "ja": "火災/煙検出の閾値（fire_detection_new.ptモデル）",
     },
     "Detection threshold for fall pose (fall_detection_new.pt model)": {
         "vi": "Ngưỡng nhận diện tư thế té ngã (model fall_detection_new.pt)",
@@ -1103,6 +1161,64 @@ STRINGS: dict[str, dict[str, str]] = {
         "vi": "Số lượt \"đang ngã\" tối thiểu (trong cửa sổ ở trên) cần có trước khi báo động Té ngã / vẽ khung Fall.",
         "en": "Minimum number of \"falling\" ticks (within the window above) required before raising the Fall alert / drawing the Fall box.",
         "ja": "転倒アラートを発報/転倒枠を描画する前に必要な、上記ウィンドウ内での最小「転倒中」検知回数。",
+    },
+    "Stranger Anti-Spam": {"vi": "Chống spam người lạ", "en": "Stranger Anti-Spam", "ja": "不審者スパム防止"},
+    "Min. face quality to judge": {
+        "vi": "Chất lượng mặt tối thiểu để đánh giá",
+        "en": "Min. face quality to judge",
+        "ja": "判定に必要な最小顔品質",
+    },
+    "Minimum face detection quality required before a face is even considered for the Stranger alert - "
+    "blurry/far/low-confidence faces below this are ignored instead of being judged.": {
+        "vi": "Chất lượng nhận diện khuôn mặt tối thiểu trước khi được xét vào cảnh báo Người lạ - mặt mờ/"
+        "xa/độ tin cậy thấp dưới mức này sẽ được bỏ qua thay vì bị đánh giá.",
+        "en": "Minimum face detection quality required before a face is even considered for the Stranger "
+        "alert - blurry/far/low-confidence faces below this are ignored instead of being judged.",
+        "ja": "不審者アラートの判定対象とする前に必要な最小顔検出品質 - これを下回るぼやけた/遠い/低信頼度の"
+        "顔は判定されずに無視されます。",
+    },
+    "Max. similarity to confirm Stranger": {
+        "vi": "Độ tương đồng tối đa để xác nhận Người lạ",
+        "en": "Max. similarity to confirm Stranger",
+        "ja": "不審者確定の最大類似度",
+    },
+    "Similarity must be at or below this value to confirm \"Stranger\". A face with some resemblance to a "
+    "known person (above this, but below the match threshold) is treated as uncertain instead of Stranger - "
+    "avoids false alerts for known people partly hidden by a mask/hair/bad angle. Lower this to reduce "
+    "missed real strangers, raise it to reduce false Stranger alerts.": {
+        "vi": "Similarity phải bằng hoặc thấp hơn giá trị này mới xác nhận \"Người lạ\". Mặt có nét giống 1 "
+        "người quen (cao hơn mức này nhưng vẫn thấp hơn ngưỡng khớp) được coi là chưa chắc chắn thay vì "
+        "Người lạ - tránh báo nhầm người quen bị khẩu trang/tóc/góc xấu che 1 phần. Hạ thấp giá trị này để "
+        "giảm bỏ sót người lạ thật, tăng lên để giảm báo nhầm Người lạ.",
+        "en": "Similarity must be at or below this value to confirm \"Stranger\". A face with some "
+        "resemblance to a known person (above this, but below the match threshold) is treated as uncertain "
+        "instead of Stranger - avoids false alerts for known people partly hidden by a mask/hair/bad angle. "
+        "Lower this to reduce missed real strangers, raise it to reduce false Stranger alerts.",
+        "ja": "「不審者」と確定するにはこの値以下である必要があります。既知の人物にある程度似ている顔（この"
+        "値より高いが、一致閾値未満）は不審者ではなく不確実として扱われます - マスクや髪、悪い角度で一部隠"
+        "れた既知の人物の誤警告を防ぎます。この値を下げると本物の不審者の見逃しが減り、上げると不審者の誤警"
+        "告が減ります。",
+    },
+    "Min. face angle (straight-on)": {
+        "vi": "Góc mặt tối thiểu (nhìn thẳng)",
+        "en": "Min. face angle (straight-on)",
+        "ja": "最小顔角度（正面向き）",
+    },
+    "How straight-on a face must be facing the camera before it can be judged Stranger. A turned/angled "
+    "face - even if detected clearly - produces a less reliable face match, so it is treated as uncertain "
+    "instead of Stranger until it turns to face the camera more directly. Lower this to accept more angled "
+    "faces, raise it to require a more direct look.": {
+        "vi": "Mặt phải nhìn thẳng vào camera ở mức nào mới được xét là Người lạ. Mặt quay nghiêng/xoay - dù "
+        "vẫn được phát hiện rõ - cho ra kết quả khớp kém tin cậy hơn, nên được coi là chưa chắc chắn thay vì "
+        "Người lạ cho tới khi họ quay lại nhìn thẳng camera hơn. Hạ thấp giá trị này để chấp nhận góc nghiêng "
+        "nhiều hơn, tăng lên để yêu cầu nhìn thẳng hơn.",
+        "en": "How straight-on a face must be facing the camera before it can be judged Stranger. A turned/"
+        "angled face - even if detected clearly - produces a less reliable face match, so it is treated as "
+        "uncertain instead of Stranger until it turns to face the camera more directly. Lower this to "
+        "accept more angled faces, raise it to require a more direct look.",
+        "ja": "不審者と判定する前に、顔がどれだけ正面を向いている必要があるか。顔を背けた/斜めの顔は、はっき"
+        "り検出されていても顔の一致信頼度が下がるため、カメラの方をもっと直接向くまで不審者ではなく不確実と"
+        "して扱われます。この値を下げるとより斜めの顔を許容し、上げるとより正面を向いた顔を必要とします。",
     },
     "Reset to Defaults": {"vi": "Khôi phục mặc định", "en": "Reset to Defaults", "ja": "デフォルトに戻す"},
 }

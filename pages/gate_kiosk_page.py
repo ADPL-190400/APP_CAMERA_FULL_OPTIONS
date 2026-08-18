@@ -55,7 +55,9 @@ from core.deep_sort_pytorch.utils.parser import get_config
 from core.device_manager import DeviceManager
 from core.event_dedup import PresenceDedup
 from core.face_crop import crop_face_with_padding
+from core.face_pose import estimate_face_frontal_ratio
 from core.gate_config import GateKind, load_gate_config, save_gate_config
+from core.ai_settings import AISettings
 from core.known_faces_store import KnownFacesStore
 from core.models.camera_device import CameraDevice, parse_points
 from core.models.event_record import EVENT_KIND_INCIDENT_TYPE_ID, EventKind
@@ -73,28 +75,13 @@ _REID_CKPT = os.path.join(
 )
 
 _FACE_DET_SCORE_THRESHOLD = 0.5
-# Ngưỡng CAO HƠN _FACE_DET_SCORE_THRESHOLD - chỉ coi là "đã nhìn đủ rõ mặt"
-# (đủ điều kiện tích luỹ streak Stranger, xem _run_ai/_bind_identities) khi
-# det_score vượt mức này. det_score ở mức 0.5-0.7 thường ứng với góc mặt
-# xấu/che khuất (cúi đầu, quay ngang, xa camera) - người QUEN gặp lúc đó vẫn
-# không khớp được (embedding kém) nên dễ bị báo nhầm "người lạ" nếu không có
-# ngưỡng riêng này; người lạ THẬT đi qua cổng vẫn sẽ có lúc nhìn thẳng đủ rõ
-# camera để vượt ngưỡng, không bỏ sót.
-_STRANGER_CONFIRM_MIN_SCORE = 0.7
-# "Vùng xám" giữa 2 ngưỡng similarity: >_SIMILARITY_THRESHOLD (0.7, xem
-# core/known_faces_store.py) = khớp hẳn 1 người quen; < mức này (0.45) = rõ
-# ràng KHÔNG giống ai đã đăng ký - CHỈ trong 2 trường hợp đó mới xác nhận
-# xong (khớp hẳn HOẶC chắc chắn Stranger). Similarity nằm GIỮA 2 ngưỡng (vd
-# 0.5-0.69) nghĩa là "có nét giống 1 người quen nhưng chưa đủ" - thường do
-# mặt bị khuất 1 phần (khẩu trang, tóc, góc nghiêng...) của chính người quen
-# đó, KHÔNG được tính là Stranger dù det_score đã đủ cao - cứ tiếp tục chờ
-# (không tăng streak Stranger, không reset về 0 - đơn giản là đứng yên chờ
-# thêm dữ liệu) tới khi similarity rõ ràng về 1 trong 2 phía. Đánh đổi: 1
-# người lạ thật có similarity ngẫu nhiên rơi đúng vùng xám (hiếm, do
-# _SIMILARITY_THRESHOLD/khoảng cách vùng xám đã được chọn rộng) sẽ không bị
-# báo động ngay, chỉ khi similarity của họ rõ hơn (thường xảy ra khi họ tới
-# gần/nhìn thẳng camera hơn) mới xác nhận được.
-_STRANGER_AMBIGUOUS_MAX_SIM = 0.45
+# Ngưỡng "đã nhìn đủ rõ mặt để tính vào streak Stranger" (AISettings.
+# stranger_confirm_min_score) và "vùng xám" - có nét giống người quen nhưng
+# chưa đủ khớp, thường do bị khuất 1 phần (AISettings.stranger_ambiguous_max_sim) -
+# đọc trực tiếp từ AISettings.instance() ở nơi dùng (không cache thành hằng
+# số cục bộ ở đây) để chỉnh qua UI "AI Setting" có tác dụng NGAY, không cần
+# khởi động lại app - dùng CHUNG với core/camera_pipeline.py để hành vi
+# chống báo nhầm Stranger nhất quán toàn hệ thống.
 # ~10 lượt AI/giây - đủ mượt để bắt kịp người đi ngang qua cổng, tương đương
 # ai_fps_limit mặc định của CameraPipeline (10).
 _AI_INTERVAL_SEC = 0.1
@@ -195,17 +182,18 @@ class GateCaptureWorker(QThread):
 
         self._tracker: Optional[DeepSort] = None
         self._track_identity: dict[int, Optional[dict]] = {}
-        # Track đã từng có ÍT NHẤT 1 lượt det_score vượt _STRANGER_CONFIRM_MIN_SCORE
-        # (nhìn đủ rõ mặt, xem _bind_identities) - track CHƯA có mặt trong
-        # set này thì chưa đủ điều kiện tích luỹ streak "Stranger" (_run_ai),
-        # tránh báo nhầm người quen cúi đầu/quay mặt (embedding kém, det_score
-        # thấp) thành người lạ chỉ vì 1 góc nhìn xấu.
+        # Track đã từng có ÍT NHẤT 1 lượt det_score vượt AISettings.
+        # stranger_confirm_min_score (nhìn đủ rõ mặt, xem _bind_identities) -
+        # track CHƯA có mặt trong set này thì chưa đủ điều kiện tích luỹ
+        # streak "Stranger" (_run_ai), tránh báo nhầm người quen cúi đầu/quay
+        # mặt (embedding kém, det_score thấp) thành người lạ chỉ vì 1 góc
+        # nhìn xấu.
         self._track_seen_well: set[int] = set()
         # Similarity CAO NHẤT từng đo được cho track (chỉ cập nhật khi CHƯA
         # khớp ra employee nào, xem _bind_identities) - dùng xét "vùng xám"
-        # (_STRANGER_AMBIGUOUS_MAX_SIM, xem _run_ai): similarity nằm giữa 2
-        # ngưỡng nghĩa là "có nét giống người quen nhưng chưa đủ", chưa nên
-        # xác nhận là Stranger.
+        # (AISettings.stranger_ambiguous_max_sim, xem _run_ai): similarity
+        # nằm giữa 2 ngưỡng nghĩa là "có nét giống người quen nhưng chưa đủ",
+        # chưa nên xác nhận là Stranger.
         self._track_best_sim: dict[int, float] = {}
         # key -> số lượt AI liên tiếp đã thấy key này ở lượt gần nhất (xem
         # _run_ai) - key là employee id (người quen) hoặc f"stranger-track-{id}"
@@ -299,22 +287,22 @@ class GateCaptureWorker(QThread):
 
             employee = self._track_identity.get(track_id)
 
-            # Chưa từng nhìn đủ rõ mặt track này (xem _STRANGER_CONFIRM_MIN_SCORE/
-            # _bind_identities) -> chưa đủ điều kiện tích luỹ streak "Stranger",
-            # đợi lượt sau nhìn rõ hơn. Không áp dụng cho người quen đã khớp
-            # (employee is not None) - sticky identity đã đủ tin cậy, không
-            # cần chờ thêm.
+            # Chưa từng nhìn đủ rõ mặt track này (xem AISettings.
+            # stranger_confirm_min_score/_bind_identities) -> chưa đủ điều
+            # kiện tích luỹ streak "Stranger", đợi lượt sau nhìn rõ hơn.
+            # Không áp dụng cho người quen đã khớp (employee is not None) -
+            # sticky identity đã đủ tin cậy, không cần chờ thêm.
             if employee is None and track_id not in self._track_seen_well:
                 continue
 
-            # "Vùng xám" (xem _STRANGER_AMBIGUOUS_MAX_SIM) - similarity CAO
-            # NHẤT từng đo được (không giảm - xem _bind_identities) nằm giữa
-            # 2 ngưỡng (có nét giống 1 người quen nhưng chưa đủ khớp, thường
-            # do mặt bị khuất 1 phần) -> KHÔNG xác nhận là Stranger (cũng
-            # không tự "hết xám" được nữa vì best_sim chỉ tăng), bỏ qua track
-            # này khỏi việc xác nhận Stranger cho tới khi (nếu có) khớp hẳn
-            # ra employee ở nhánh khác.
-            if employee is None and self._track_best_sim.get(track_id, 0.0) > _STRANGER_AMBIGUOUS_MAX_SIM:
+            # "Vùng xám" (xem AISettings.stranger_ambiguous_max_sim) -
+            # similarity CAO NHẤT từng đo được (không giảm - xem
+            # _bind_identities) nằm giữa 2 ngưỡng (có nét giống 1 người quen
+            # nhưng chưa đủ khớp, thường do mặt bị khuất 1 phần) -> KHÔNG xác
+            # nhận là Stranger (cũng không tự "hết xám" được nữa vì best_sim
+            # chỉ tăng), bỏ qua track này khỏi việc xác nhận Stranger cho tới
+            # khi (nếu có) khớp hẳn ra employee ở nhánh khác.
+            if employee is None and self._track_best_sim.get(track_id, 0.0) > AISettings.instance().stranger_ambiguous_max_sim:
                 continue
 
             employee_id = employee.get("id") if employee is not None else None
@@ -359,7 +347,17 @@ class GateCaptureWorker(QThread):
                     best_dist = dist
                     best_track_id = int(track_id)
             if best_track_id is not None:
-                if face.det_score >= _STRANGER_CONFIRM_MIN_SCORE:
+                settings = AISettings.instance()
+                # det_score cao KHÔNG có nghĩa mặt đang nhìn thẳng - 1 mặt
+                # quay nghiêng vẫn detect rõ (det_score cao) nhưng embedding
+                # kém tin cậy hơn hẳn ảnh thẳng (xem core/face_pose.py) - cần
+                # CẢ 2 điều kiện mới coi là "đã nhìn đủ rõ VÀ đủ thẳng" để
+                # tích luỹ streak Stranger, tránh báo nhầm người quen chỉ vì
+                # họ quay đầu/liếc ngang qua camera.
+                if (
+                    face.det_score >= settings.stranger_confirm_min_score
+                    and estimate_face_frontal_ratio(face.kps) >= settings.stranger_min_frontal_ratio
+                ):
                     self._track_seen_well.add(best_track_id)
                 employee, sim = store.match_employee(face.normed_embedding)
                 if employee is None:

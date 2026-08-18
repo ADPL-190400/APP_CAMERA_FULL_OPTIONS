@@ -34,6 +34,7 @@ class CameraModel:
     fire_alert: bool = False
     fall_alert: bool = False
     stranger_alert: bool = False
+    occupancy_alert: bool = False
 
     # Internal – UI callback
     _on_changed: Optional[Callable] = field(default=None, repr=False, compare=False)

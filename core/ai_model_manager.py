@@ -126,7 +126,7 @@ class AIModelManager:
         self._ppe_call_lock = threading.Lock()
 
         # Fire detection - port từ YOLO_FIRE.py, model riêng chạy trên
-        # TOÀN KHUNG HÌNH (không phụ thuộc Body/Pose), classes=[0, 2].
+        # TOÀN KHUNG HÌNH (không phụ thuộc Body/Pose), 2 lớp {0: Fire, 1: Smoke}.
         self._fire_model: YOLO | None = None
         self._fire_load_lock = threading.Lock()
         self._fire_call_lock = threading.Lock()
@@ -280,10 +280,10 @@ class AIModelManager:
         return vest_count, helmet_count
 
     # ------------------------------------------------------------------ #
-    # Fire detection - dùng chung cho mọi camera, chạy trên TOÀN khung
-    # hình (port từ YOLO_FIRE.py, classes=[0, 2] tương ứng "fire"/"smoke"
-    # trong fire_detection_new.pt - đã verify cùng thứ tự class với bản cũ:
-    # {0: fire, 1: other/default, 2: smoke}).
+    # Fire detection - dùng chung cho mọi camera, chạy trên TOÀN khung hình.
+    # fire_detection_new.pt (bản model.names hiện tại - đã verify trực tiếp,
+    # KHÔNG suy đoán từ bản cũ) có 2 lớp {0: Fire, 1: Smoke}, dùng CHUNG 1
+    # ngưỡng fire_conf cho cả 2 (đơn giản hơn - không cần 2 ngưỡng riêng).
     # ------------------------------------------------------------------ #
     def _get_fire_model(self) -> YOLO:
         if self._fire_model is None:
@@ -299,7 +299,7 @@ class AIModelManager:
         model = self._get_fire_model()
         with self._fire_call_lock, self._measure("fire"):
             results = model(
-                frame, classes=[0, 2], device=DEVICE, verbose=False, conf=AISettings.instance().fire_conf, imgsz=imgsz
+                frame, classes=[0, 1], device=DEVICE, verbose=False, conf=AISettings.instance().fire_conf, imgsz=imgsz
             )
         return results[0]
 

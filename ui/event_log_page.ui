@@ -92,6 +92,16 @@
          <string>Check-in</string>
         </property>
        </item>
+       <item>
+        <property name="text">
+         <string>Overcrowding</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>Recognized</string>
+        </property>
+       </item>
       </widget>
      </item>
      <item>
@@ -175,7 +185,7 @@
    <item>
     <widget class="QTableWidget" name="table_events">
      <property name="columnCount">
-      <number>4</number>
+      <number>5</number>
      </property>
      <property name="selectionBehavior">
       <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
@@ -206,7 +216,12 @@
      </column>
      <column>
       <property name="text">
-       <string>Alert Type</string>
+       <string>Event Type</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>Detail</string>
       </property>
      </column>
     </widget>

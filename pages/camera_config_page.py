@@ -56,6 +56,7 @@ _TR_TEXT_MAP = {
     "lbl_inference_quality": "Detection Quality",
     "check_enable_counting": "Count people in/out  (requires drawing a Counting Line)",
     "check_enable_occupancy": "Monitor current occupancy  (ROI recommended)",
+    "lbl_occupancy_threshold": "Alert if occupancy exceeds",
     "check_enable_ppe": "PPE monitoring  (requires drawing an ROI)",
     "check_enable_fire": "Fire Detection",
     "check_enable_fall": "Fall Detection",
@@ -143,6 +144,11 @@ _TR_TOOLTIP_MAP = {
         "lower accuracy for small or distant people/objects."
     ),
     "list_roi": "View-only list - draw/edit/delete via the ROI Editor",
+    "spin_occupancy_threshold": (
+        "0 = no alert (unlimited). When the number of people currently in view goes above this number, an "
+        "alert is raised (SYSTEM ALARMS + Event Log) - it will not repeat while the count stays above the "
+        "threshold continuously, only again after it drops back down and exceeds it again."
+    ),
 }
 _TR_COMBO_ITEMS = {
     "combo_vendor": ["Unknown", "Hikvision", "Dahua", "Axis", "Bosch", "Other"],
@@ -190,6 +196,7 @@ class CameraConfigPage(QtWidgets.QWidget):
             getattr(self, attr).setTitle(tr(key))
         for attr, key in _TR_TOOLTIP_MAP.items():
             getattr(self, attr).setToolTip(tr(key))
+        self.spin_occupancy_threshold.setSpecialValueText(tr("Off"))
         self.edit_search_camera.setPlaceholderText(tr("Search camera…"))
         for attr, keys in _TR_COMBO_ITEMS.items():
             combo = getattr(self, attr)
@@ -331,6 +338,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         self._combo_set_canonical(self.combo_inference_quality, "combo_inference_quality", device.ai.inference_quality)
         self.check_enable_counting.setChecked(device.ai.enable_counting)
         self.check_enable_occupancy.setChecked(device.ai.enable_occupancy)
+        self.spin_occupancy_threshold.setValue(device.ai.occupancy_threshold)
         self.check_enable_ppe.setChecked(device.ai.enable_ppe)
         self.check_enable_fire.setChecked(device.ai.enable_fire)
         self.check_enable_fall.setChecked(device.ai.enable_fall)
@@ -391,6 +399,7 @@ class CameraConfigPage(QtWidgets.QWidget):
                 inference_quality=self._combo_get_canonical(self.combo_inference_quality, "combo_inference_quality"),
                 enable_counting=self.check_enable_counting.isChecked(),
                 enable_occupancy=self.check_enable_occupancy.isChecked(),
+                occupancy_threshold=self.spin_occupancy_threshold.value(),
                 enable_ppe=self.check_enable_ppe.isChecked(),
                 enable_fire=self.check_enable_fire.isChecked(),
                 enable_fall=self.check_enable_fall.isChecked(),

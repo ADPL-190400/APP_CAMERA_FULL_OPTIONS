@@ -676,6 +676,49 @@
                    </widget>
                   </item>
                   <item>
+                   <layout class="QHBoxLayout" name="layout_occupancy_threshold">
+                    <item>
+                     <widget class="QLabel" name="lbl_occupancy_threshold">
+                      <property name="text">
+                       <string>Alert if occupancy exceeds</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QSpinBox" name="spin_occupancy_threshold">
+                      <property name="toolTip">
+                       <string>0 = no alert (unlimited). When the number of people currently in view goes above this number, an alert is raised (SYSTEM ALARMS + Event Log) - it will not repeat while the count stays above the threshold continuously, only again after it drops back down and exceeds it again.</string>
+                      </property>
+                      <property name="specialValueText">
+                       <string>Off</string>
+                      </property>
+                      <property name="minimum">
+                       <number>0</number>
+                      </property>
+                      <property name="maximum">
+                       <number>999</number>
+                      </property>
+                      <property name="value">
+                       <number>0</number>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <spacer name="spacer_occupancy_threshold">
+                      <property name="orientation">
+                       <enum>Qt::Horizontal</enum>
+                      </property>
+                      <property name="sizeHint" stdset="0">
+                       <size>
+                        <width>40</width>
+                        <height>20</height>
+                       </size>
+                      </property>
+                     </spacer>
+                    </item>
+                   </layout>
+                  </item>
+                  <item>
                    <widget class="QCheckBox" name="check_enable_ppe">
                     <property name="text">
                      <string>PPE monitoring  (requires drawing an ROI)</string>

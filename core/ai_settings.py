@@ -30,6 +30,16 @@ class AISettings:
     fire_conf: float = 0.5
     fall_conf: float = 0.75
 
+    # Độ tương đồng tối thiểu để coi 1 khuôn mặt phát hiện được là khớp với 1
+    # người quen (KnownFacesStore.match, dùng bởi core/camera_pipeline.py -
+    # Live View/Dashboard) - cao hơn = chặt hơn (ít nhận nhầm 2 người giống
+    # nhau, nhưng dễ bỏ sót người quen ở góc/ánh sáng xấu); thấp hơn = lỏng
+    # hơn. Áp dụng CHUNG mọi camera (không còn per-camera - đổi ở đây có tác
+    # dụng ngay toàn hệ thống). Gate Kiosk/Face App enrollment vẫn dùng
+    # _SIMILARITY_THRESHOLD mặc định riêng ở core/known_faces_store.py, không
+    # đụng tới.
+    face_similarity_threshold: float = 0.7
+
     # "Xác nhận té ngã" (core/camera_pipeline.py::_check_fall): trong
     # fall_confirm_window lượt AI GẦN NHẤT, phải có ÍT NHẤT
     # fall_confirm_min_count lượt phát hiện "đang ngã" (fall_conf ở trên đã
@@ -38,6 +48,30 @@ class AISettings:
     # sáng...). fall_confirm_min_count PHẢI <= fall_confirm_window.
     fall_confirm_window: int = 10
     fall_confirm_min_count: int = 5
+
+    # Chống báo "Stranger" NHẦM khi thực ra là 1 người QUEN bị che khuất/góc
+    # mặt xấu/ánh sáng kém (nguyên nhân phổ biến nhất gây spam cảnh báo sai -
+    # xem core/camera_pipeline.py::_check_faces + pages/gate_kiosk_page.py).
+    # 1 khuôn mặt "Stranger" chỉ được TÍNH VÀO streak/cảnh báo khi CẢ 2 đúng:
+    #   stranger_confirm_min_score - det_score đủ cao (mặt nhìn đủ rõ, không
+    #     mờ/nghiêng/xa) - det_score thấp không có nghĩa "chắc chắn không
+    #     phải ai", có thể chỉ là embedding kém do góc xấu.
+    #   stranger_ambiguous_max_sim - similarity đủ THẤP, rõ ràng không giống
+    #     ai đã đăng ký - similarity nằm giữa mức này và ngưỡng khớp nghĩa là
+    #     "có nét giống 1 người quen nhưng chưa đủ" (thường do khẩu trang/
+    #     tóc/góc nghiêng che 1 phần), KHÔNG nên tính là Stranger.
+    # Dùng CHUNG 1 cặp giá trị cho cả Live View/Dashboard (camera_pipeline.py)
+    # VÀ Gate Kiosk (gate_kiosk_page.py) - chỉnh ở đây áp dụng đồng thời cho
+    # toàn hệ thống, không cần sửa nhiều nơi.
+    stranger_confirm_min_score: float = 0.7
+    stranger_ambiguous_max_sim: float = 0.45
+    # Mặt quay nghiêng vẫn có thể có det_score CAO (detector vẫn thấy rõ đó
+    # là mặt người) nhưng embedding tính từ góc nghiêng kém tin cậy, dễ làm
+    # similarity tụt thấp dù là người quen thật (xem core/face_pose.py) - chỉ
+    # tính vào streak/cảnh báo Stranger khi mặt đủ "thẳng" (không phải chỉ
+    # đủ rõ) theo tỉ lệ này (0..1, 1.0 = chỉ chấp nhận mặt gần như thẳng
+    # tuyệt đối, thấp hơn = chấp nhận góc nghiêng nhiều hơn).
+    stranger_min_frontal_ratio: float = 0.5
 
     _instance: ClassVar[Optional["AISettings"]] = None
     _instance_lock: ClassVar[threading.Lock] = threading.Lock()

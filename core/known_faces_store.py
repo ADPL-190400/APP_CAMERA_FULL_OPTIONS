@@ -35,6 +35,13 @@ from scr import Web_API
 
 _SIMILARITY_THRESHOLD = 0.7  # port từ D:\APP_MIRAI_ver1\process\cameraTab\Face_detection.py
 
+# Ngưỡng "vùng xám" chống báo Stranger nhầm (det_score đủ cao + similarity đủ
+# thấp mới xác nhận là Stranger thật, tránh nhầm người quen bị che khuất/góc
+# xấu) giờ CHỈNH ĐƯỢC qua UI - xem core/ai_settings.py
+# (stranger_confirm_min_score/stranger_ambiguous_max_sim, AI Setting ở
+# sidebar) - core/camera_pipeline.py và pages/gate_kiosk_page.py đọc trực
+# tiếp từ AISettings.instance(), không còn hằng số cố định ở đây nữa.
+
 
 def _load_local_embeddings(employee: dict) -> list[np.ndarray]:
     """Đọc thêm vector riêng từng góc (thẳng/trái/phải) đã lưu cục bộ lúc
@@ -148,11 +155,19 @@ class KnownFacesStore(QObject):
     def last_error(self) -> str:
         return self._last_error
 
-    def match(self, embedding: np.ndarray) -> tuple[str, float]:
+    def match(self, embedding: np.ndarray, threshold: float = _SIMILARITY_THRESHOLD) -> tuple[str, float]:
         """So embedding 1 khuôn mặt vừa phát hiện với toàn bộ known faces.
         Trả về (tên, similarity) - tên là "Stranger" nếu không ai vượt
-        ngưỡng _SIMILARITY_THRESHOLD (không phân biệt "Unknown" riêng - ai
-        không khớp coi như người lạ, đúng yêu cầu cảnh báo người lạ).
+        `threshold` (mặc định _SIMILARITY_THRESHOLD - không phân biệt
+        "Unknown" riêng - ai không khớp coi như người lạ, đúng yêu cầu cảnh
+        báo người lạ).
+
+        `threshold` cho phép nơi gọi tự chỉnh độ chặt/lỏng theo NGỮ CẢNH
+        riêng (vd core/camera_pipeline.py truyền AISettings.instance().
+        face_similarity_threshold - chỉnh qua UI "AI Setting", áp dụng mọi
+        camera ngay lập tức - không đụng tới hành vi mặc định của các nơi
+        gọi khác: gate_kiosk_page.py/face_attendance_page.py vẫn dùng
+        match_employee() với ngưỡng mặc định _SIMILARITY_THRESHOLD như cũ).
 
         similarity trả về LUÔN LÀ SỐ THẬT đã đo được (kể cả khi < ngưỡng,
         tức "Stranger") - không phải hằng số ngưỡng - để nơi gọi (vd log chẩn
@@ -163,7 +178,7 @@ class KnownFacesStore(QObject):
         sims = self._embeddings_matrix @ embedding
         idx = int(np.argmax(sims))
         best_sim = float(sims[idx])
-        if best_sim > _SIMILARITY_THRESHOLD:
+        if best_sim > threshold:
             return self._names[self._row_owner[idx]], best_sim
         return "Stranger", best_sim
 

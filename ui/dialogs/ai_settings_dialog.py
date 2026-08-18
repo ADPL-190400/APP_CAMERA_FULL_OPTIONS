@@ -17,7 +17,7 @@ _CONF_FIELDS = [
     ("pose_conf", "Pose / Body", "Detection threshold for body/pose (used by Fall - needs keypoints)"),
     ("human_conf", "Human Detection", "Detection threshold for head detection (count in/out, occupancy, PPE zone-check)"),
     ("ppe_conf", "PPE", "Detection threshold for vest/helmet"),
-    ("fire_conf", "Fire / Smoke", "Detection threshold for fire/smoke"),
+    ("fire_conf", "Fire / Smoke", "Detection threshold for fire/smoke (fire_detection_new.pt model)"),
     ("fall_conf", "Fall", "Detection threshold for fall pose (fall_detection_new.pt model)"),
 ]
 
@@ -76,6 +76,74 @@ class AISettingsDialog(QtWidgets.QDialog):
         fall_form.addRow(tr("Min. falling ticks to confirm"), self.spin_fall_min_count)
         layout.addWidget(fall_group)
 
+        face_group = QtWidgets.QGroupBox(tr("Face Recognition"))
+        face_form = QtWidgets.QFormLayout(face_group)
+
+        self.spin_face_similarity_threshold = QtWidgets.QDoubleSpinBox()
+        self.spin_face_similarity_threshold.setRange(0.05, 0.95)
+        self.spin_face_similarity_threshold.setSingleStep(0.05)
+        self.spin_face_similarity_threshold.setDecimals(2)
+        self.spin_face_similarity_threshold.setValue(settings.face_similarity_threshold)
+        self.spin_face_similarity_threshold.setToolTip(
+            tr(
+                "How closely a detected face must match a known person to be recognized. Higher = stricter "
+                "(fewer false matches, but may miss known people at bad angles/lighting). Lower = looser "
+                "(recognizes known people more easily, but raises the risk of confusing 2 similar-looking "
+                "people)."
+            )
+        )
+        face_form.addRow(tr("Face match sensitivity"), self.spin_face_similarity_threshold)
+        layout.addWidget(face_group)
+
+        stranger_group = QtWidgets.QGroupBox(tr("Stranger Anti-Spam"))
+        stranger_form = QtWidgets.QFormLayout(stranger_group)
+
+        self.spin_stranger_confirm_min_score = QtWidgets.QDoubleSpinBox()
+        self.spin_stranger_confirm_min_score.setRange(0.05, 0.95)
+        self.spin_stranger_confirm_min_score.setSingleStep(0.05)
+        self.spin_stranger_confirm_min_score.setDecimals(2)
+        self.spin_stranger_confirm_min_score.setValue(settings.stranger_confirm_min_score)
+        self.spin_stranger_confirm_min_score.setToolTip(
+            tr(
+                "Minimum face detection quality required before a face is even considered for the "
+                "Stranger alert - blurry/far/low-confidence faces below this are ignored instead of being "
+                "judged."
+            )
+        )
+        stranger_form.addRow(tr("Min. face quality to judge"), self.spin_stranger_confirm_min_score)
+
+        self.spin_stranger_ambiguous_max_sim = QtWidgets.QDoubleSpinBox()
+        self.spin_stranger_ambiguous_max_sim.setRange(0.05, 0.95)
+        self.spin_stranger_ambiguous_max_sim.setSingleStep(0.05)
+        self.spin_stranger_ambiguous_max_sim.setDecimals(2)
+        self.spin_stranger_ambiguous_max_sim.setValue(settings.stranger_ambiguous_max_sim)
+        self.spin_stranger_ambiguous_max_sim.setToolTip(
+            tr(
+                "Similarity must be at or below this value to confirm \"Stranger\". A face with some "
+                "resemblance to a known person (above this, but below the match threshold) is treated as "
+                "uncertain instead of Stranger - avoids false alerts for known people partly hidden by a "
+                "mask/hair/bad angle. Lower this to reduce missed real strangers, raise it to reduce false "
+                "Stranger alerts."
+            )
+        )
+        stranger_form.addRow(tr("Max. similarity to confirm Stranger"), self.spin_stranger_ambiguous_max_sim)
+
+        self.spin_stranger_min_frontal_ratio = QtWidgets.QDoubleSpinBox()
+        self.spin_stranger_min_frontal_ratio.setRange(0.10, 1.00)
+        self.spin_stranger_min_frontal_ratio.setSingleStep(0.05)
+        self.spin_stranger_min_frontal_ratio.setDecimals(2)
+        self.spin_stranger_min_frontal_ratio.setValue(settings.stranger_min_frontal_ratio)
+        self.spin_stranger_min_frontal_ratio.setToolTip(
+            tr(
+                "How straight-on a face must be facing the camera before it can be judged Stranger. A "
+                "turned/angled face - even if detected clearly - produces a less reliable face match, so it "
+                "is treated as uncertain instead of Stranger until it turns to face the camera more "
+                "directly. Lower this to accept more angled faces, raise it to require a more direct look."
+            )
+        )
+        stranger_form.addRow(tr("Min. face angle (straight-on)"), self.spin_stranger_min_frontal_ratio)
+        layout.addWidget(stranger_group)
+
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -99,6 +167,10 @@ class AISettingsDialog(QtWidgets.QDialog):
             spin.setValue(getattr(defaults, field))
         self.spin_fall_window.setValue(defaults.fall_confirm_window)
         self.spin_fall_min_count.setValue(defaults.fall_confirm_min_count)
+        self.spin_face_similarity_threshold.setValue(defaults.face_similarity_threshold)
+        self.spin_stranger_confirm_min_score.setValue(defaults.stranger_confirm_min_score)
+        self.spin_stranger_ambiguous_max_sim.setValue(defaults.stranger_ambiguous_max_sim)
+        self.spin_stranger_min_frontal_ratio.setValue(defaults.stranger_min_frontal_ratio)
 
     def _on_accept(self) -> None:
         settings = AISettings.instance()
@@ -106,5 +178,9 @@ class AISettingsDialog(QtWidgets.QDialog):
             setattr(settings, field, round(spin.value(), 2))
         settings.fall_confirm_window = self.spin_fall_window.value()
         settings.fall_confirm_min_count = self.spin_fall_min_count.value()
+        settings.face_similarity_threshold = round(self.spin_face_similarity_threshold.value(), 2)
+        settings.stranger_confirm_min_score = round(self.spin_stranger_confirm_min_score.value(), 2)
+        settings.stranger_ambiguous_max_sim = round(self.spin_stranger_ambiguous_max_sim.value(), 2)
+        settings.stranger_min_frontal_ratio = round(self.spin_stranger_min_frontal_ratio.value(), 2)
         settings.save()
         self.accept()

@@ -33,6 +33,7 @@ _ALARM_KINDS = [
     ("fire_alert", "🔥 Fire"),
     ("fall_alert", "🚨 Fall"),
     ("stranger_alert", "🧑‍❓ Stranger"),
+    ("occupancy_alert", "👥 Overcrowding"),
 ]
 
 # Gián đoạn phát hiện ngắn hơn mức này vẫn tính là "đang tiếp diễn" (không
@@ -271,6 +272,7 @@ class LiveViewPage(QtWidgets.QWidget):
             fire_alert=result.get("fire_alert", False),
             fall_alert=result.get("fall_alert", False),
             stranger_alert=result.get("stranger_alert", False),
+            occupancy_alert=result.get("occupancy_alert", False),
         )
 
     # ------------------------------------------------------------------ #

@@ -74,7 +74,8 @@ class EventStore(QObject):
                 camera_name TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
-                image_path TEXT NOT NULL
+                image_path TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT ''
             )
             """
         )
@@ -82,6 +83,7 @@ class EventStore(QObject):
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_events_camera ON events(camera_name)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind)")
         self._conn.commit()
+        self._migrate_detail_column()
         self._migrate_legacy_json()
         self._last_prune = time.monotonic()
         self._prune_old_events()
@@ -91,6 +93,19 @@ class EventStore(QObject):
         if cls._instance is None:
             cls._instance = EventStore()
         return cls._instance
+
+    # ------------------------------------------------------------------ #
+    # Migration cột "detail" (thêm sau - DB cũ tạo TRƯỚC khi có cột này
+    # trong CREATE TABLE ở trên sẽ KHÔNG tự có cột, "CREATE TABLE IF NOT
+    # EXISTS" chỉ chạy khi bảng chưa tồn tại) - ALTER TABLE thêm cột, lờ đi
+    # lỗi "duplicate column" nếu đã chạy migration này rồi (idempotent).
+    # ------------------------------------------------------------------ #
+    def _migrate_detail_column(self) -> None:
+        try:
+            self._conn.execute("ALTER TABLE events ADD COLUMN detail TEXT NOT NULL DEFAULT ''")
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # cột đã tồn tại (DB tạo mới đã có sẵn, hoặc đã migrate từ trước)
 
     # ------------------------------------------------------------------ #
     # Migration từ events.json bản cũ (chỉ chạy nếu file đó còn tồn tại -
@@ -108,9 +123,9 @@ class EventStore(QObject):
             os.rename(legacy_path, legacy_path + ".corrupt")
             return
         self._conn.executemany(
-            "INSERT OR IGNORE INTO events (id, device_id, camera_name, kind, timestamp, image_path) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            [(r.id, r.device_id, r.camera_name, r.kind.value, r.timestamp, r.image_path) for r in records],
+            "INSERT OR IGNORE INTO events (id, device_id, camera_name, kind, timestamp, image_path, detail) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [(r.id, r.device_id, r.camera_name, r.kind.value, r.timestamp, r.image_path, r.detail) for r in records],
         )
         self._conn.commit()
         os.rename(legacy_path, legacy_path + ".migrated")
@@ -118,20 +133,27 @@ class EventStore(QObject):
     # ------------------------------------------------------------------ #
     # Ghi
     # ------------------------------------------------------------------ #
-    def add_event(self, device_id: str, camera_name: str, kind: EventKind, frame) -> EventRecord:
+    def add_event(self, device_id: str, camera_name: str, kind: EventKind, frame, detail: str = "") -> EventRecord:
         """Lưu 1 frame (numpy BGR, full-res) thành ảnh JPEG + thêm 1
         EventRecord (INSERT incremental, KHÔNG ghi lại toàn bộ bảng). Gọi từ
         thread của CameraPipeline (không phải main thread) - an toàn nhờ
         self._lock; event_added tự động queue sang main thread nhờ cơ chế Qt
-        signal chuẩn (giống DeviceManager.ai_result_ready)."""
-        record = EventRecord.new(device_id, camera_name, kind, image_path="")
+        signal chuẩn (giống DeviceManager.ai_result_ready).
+
+        detail: thông tin phụ hiện tại Event Log (vd tên người quen được
+        nhận diện - xem EventRecord.detail) - rỗng nếu loại sự kiện không có
+        danh tính cụ thể để hiện (PPE/Fire/Fall/Stranger/Overcrowding)."""
+        record = EventRecord.new(device_id, camera_name, kind, image_path="", detail=detail)
         record.image_path = self._save_image(record, frame)
 
         with self._lock:
             self._conn.execute(
-                "INSERT INTO events (id, device_id, camera_name, kind, timestamp, image_path) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (record.id, record.device_id, record.camera_name, record.kind.value, record.timestamp, record.image_path),
+                "INSERT INTO events (id, device_id, camera_name, kind, timestamp, image_path, detail) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    record.id, record.device_id, record.camera_name, record.kind.value,
+                    record.timestamp, record.image_path, record.detail,
+                ),
             )
             self._conn.commit()
             self._maybe_prune()
@@ -206,14 +228,17 @@ class EventStore(QObject):
     ) -> list[EventRecord]:
         clause, params = self._build_where(camera_name, kind, since)
         sql = (
-            f"SELECT id, device_id, camera_name, kind, timestamp, image_path FROM events "
+            f"SELECT id, device_id, camera_name, kind, timestamp, image_path, detail FROM events "
             f"{clause} ORDER BY timestamp DESC LIMIT ? OFFSET ?"
         )
         with self._lock:
             cur = self._conn.execute(sql, [*params, limit, offset])
             rows = cur.fetchall()
         return [
-            EventRecord(id=r[0], device_id=r[1], camera_name=r[2], kind=EventKind(r[3]), timestamp=r[4], image_path=r[5])
+            EventRecord(
+                id=r[0], device_id=r[1], camera_name=r[2], kind=EventKind(r[3]),
+                timestamp=r[4], image_path=r[5], detail=r[6],
+            )
             for r in rows
         ]
 

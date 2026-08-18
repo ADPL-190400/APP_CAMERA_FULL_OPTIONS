@@ -44,6 +44,12 @@ class AIConfig:
     enable_fire: bool = False
     enable_fall: bool = False
     enable_face_recognition: bool = False
+    # Ngưỡng số người tối đa cho phép trong khung hình (chỉ có ý nghĩa khi
+    # enable_occupancy bật - num_people tính từ occupancy, không phải
+    # counting in/out) - vượt ngưỡng này thì CameraPipeline phát 1 cảnh báo
+    # "occupancy_alert" (xem core/camera_pipeline.py:_run_ai). 0 = tắt cảnh
+    # báo (không giới hạn), giữ hành vi cũ mặc định.
+    occupancy_threshold: int = 0
     # Kích thước ảnh đưa vào model YOLO (pose/ppe/fire/fall) - độc lập với
     # resolution gốc/hiển thị. Giảm xuống Fast/Balanced để tăng tốc khi chạy
     # nhiều camera AI cùng lúc (đổi lại độ chính xác giảm nhẹ với người/vật

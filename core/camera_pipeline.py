@@ -43,6 +43,8 @@ from core.deep_sort_pytorch.deep_sort import DeepSort
 from core.deep_sort_pytorch.utils.parser import get_config
 from core.event_dedup import PresenceDedup
 from core.event_store import EventStore
+from core.face_crop import crop_face_with_padding
+from core.face_pose import estimate_face_frontal_ratio
 from core.known_faces_store import KnownFacesStore
 from core.line_crossing import ccw, segments_intersect
 from core.models.camera_device import (
@@ -74,6 +76,17 @@ _FACE_DET_SCORE_THRESHOLD = 0.5   # ngưỡng chất lượng detection, giống
 _STRANGER_STREAK_REQUIRED = 3      # cần 3 lượt AI liên tiếp thấy "Stranger" mới báo động (tránh nhiễu 1 frame)
 _FACE_MAX_PER_FRAME = 10           # đám đông > 10 mặt/frame -> chỉ nhận diện 10 mặt gần/to nhất, tránh cả frame bị kéo chậm vì nhận diện hết
 
+# 3 trạng thái hiển thị/xử lý cho mỗi khuôn mặt phát hiện được - xem
+# CameraPipeline._check_faces (docstring đầy đủ ở đó).
+_FACE_STATUS_KNOWN = "known"
+_FACE_STATUS_STRANGER = "stranger"
+_FACE_STATUS_UNKNOWN = "unknown"
+_FACE_STATUS_COLORS = {  # BGR - xem _draw_overlay
+    _FACE_STATUS_KNOWN: (0, 200, 0),      # xanh lá
+    _FACE_STATUS_STRANGER: (0, 100, 255),  # cam/đỏ
+    _FACE_STATUS_UNKNOWN: (0, 220, 255),   # vàng - chưa đủ căn cứ kết luận
+}
+
 # Event Log: cùng ngưỡng "đợt vi phạm mới" với Event Feed/System Alarms
 # (dashboard_page.py/liveview_page.py) - tránh lưu ảnh spam liên tục trong
 # lúc 1 điều kiện vẫn còn đúng.
@@ -88,7 +101,7 @@ _RECONNECT_POLL_MS = 200
 class CameraPipeline(QThread):
     frame_ready = pyqtSignal(str, QImage)   # device_id, frame (chỉ emit khi có viewer)
     error_occurred = pyqtSignal(str, str)   # device_id, message
-    ai_result_ready = pyqtSignal(str, dict)  # device_id, {"num_people","num_in","num_out","ppe_violation","fire_alert","fall_alert"}
+    ai_result_ready = pyqtSignal(str, dict)  # device_id, {"num_people","num_in","num_out","ppe_violation","fire_alert","fall_alert","occupancy_alert"}
 
     def __init__(
         self,
@@ -103,6 +116,7 @@ class CameraPipeline(QThread):
         roi_polygons: list[str] | None = None,
         enable_counting: bool = False,
         enable_occupancy: bool = False,
+        occupancy_threshold: int = 0,
         enable_ppe: bool = False,
         enable_fire: bool = False,
         enable_fall: bool = False,
@@ -169,7 +183,7 @@ class CameraPipeline(QThread):
         self._last_fall_alert = False
         self._last_fall_bbox: tuple[int, int, int, int] | None = None
         self._last_stranger_alert = False
-        self._last_face_boxes: list[tuple[int, int, int, int, str, bool]] = []  # x1,y1,x2,y2,name,is_stranger
+        self._last_face_boxes: list[tuple[int, int, int, int, str, str]] = []  # x1,y1,x2,y2,label,status (_FACE_STATUS_*)
 
         # Toàn bộ cờ enable/ROI/Line/Overlay được gom vào update_ai_settings()
         # - dùng chung cho cả lúc khởi tạo LẪN khi DeviceManager đẩy cấu hình
@@ -179,6 +193,7 @@ class CameraPipeline(QThread):
             ai_enabled=ai_enabled,
             enable_counting=enable_counting,
             enable_occupancy=enable_occupancy,
+            occupancy_threshold=occupancy_threshold,
             enable_ppe=enable_ppe,
             enable_fire=enable_fire,
             enable_fall=enable_fall,
@@ -199,6 +214,7 @@ class CameraPipeline(QThread):
         ai_enabled: bool,
         enable_counting: bool,
         enable_occupancy: bool,
+        occupancy_threshold: int,
         enable_ppe: bool,
         enable_fire: bool,
         enable_fall: bool,
@@ -233,6 +249,8 @@ class CameraPipeline(QThread):
         # thiếu cấu hình chỉ đơn giản là no-op, không lỗi.
         self._enable_counting = enable_counting
         self._enable_occupancy = enable_occupancy
+        # 0 = tắt cảnh báo (xem AIConfig.occupancy_threshold/_run_ai).
+        self._occupancy_threshold = occupancy_threshold
         self._enable_ppe = enable_ppe
         self._enable_fire = enable_fire
         self._enable_fall = enable_fall
@@ -408,7 +426,14 @@ class CameraPipeline(QThread):
             pose_result = AIModelManager.instance().detect_bodies(frame, imgsz=self._inference_imgsz)
             fall_alert, fall_bbox = self._check_fall(frame, pose_result)
 
-        self._capture_events(frame, ppe_violation, fire_alert, fall_alert, stranger_alert)
+        # Ngưỡng số người (tab AI, chỉ có ý nghĩa khi Occupancy đang bật -
+        # num_people ở trên = 0 nếu enable_occupancy tắt, nên occupancy_alert
+        # tự động luôn False trong trường hợp đó). 0 = không giới hạn/tắt.
+        occupancy_alert = (
+            self._enable_occupancy and self._occupancy_threshold > 0 and num_people > self._occupancy_threshold
+        )
+
+        self._capture_events(frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert)
 
         self._emit_ai_result(
             num_people=num_people,
@@ -416,32 +441,90 @@ class CameraPipeline(QThread):
             fire_alert=fire_alert,
             fall_alert=fall_alert,
             fall_bbox=fall_bbox,
+            occupancy_alert=occupancy_alert,
             known_faces=known_faces,
             stranger_alert=stranger_alert,
         )
 
-    def _capture_events(self, frame, ppe_violation, fire_alert, fall_alert, stranger_alert) -> None:
+    def _capture_events(
+        self, frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert
+    ) -> None:
         """Lưu ảnh bằng chứng (EventStore) cho mỗi ĐỢT cảnh báo MỚI - dedup
         qua PresenceDedup (cùng ngưỡng grace với Event Feed/System Alarms),
         không lưu lặp lại khi 1 điều kiện còn tiếp diễn liên tục. Chạy ngay
         trong thread của pipeline này (đã có sẵn frame full-res), không phụ
         thuộc có viewer đang xem preview hay không.
 
+        Đây cũng chính là cơ chế chống spam thông báo cho occupancy_alert -
+        vượt ngưỡng người rồi cứ đứng yên trên ngưỡng đó KHÔNG báo lại liên
+        tục, chỉ báo lại khi tụt xuống dưới ngưỡng lâu hơn _EVENT_LOG_GRACE_SEC
+        rồi vượt lại lần nữa (giống hệt cách PPE/Fire/Fall/Stranger đã hoạt
+        động từ trước - không cần cơ chế cooldown riêng).
+
         Cùng 1 đợt "MỚI" này cũng là điểm gửi incident lên web server (nếu
         camera có mac_address) - tái dùng ĐÚNG dedup gate này thay vì viết
         thêm debounce riêng (khác MIRAI - mỗi feature tự có 1 kiểu debounce
-        rời rạc: delay==3, interval theo giây...)."""
+        rời rạc: delay==3, interval theo giây...).
+
+        Stranger/Face-recognized KHÔNG nằm trong "checks" ở đây (ảnh bằng
+        chứng của 2 loại đó là CROP KHUÔN MẶT, không phải full-frame + ROI
+        như PPE/Fire/Fall/Occupancy) - xem _capture_face_events."""
         checks = (
             (ppe_violation, EventKind.PPE_VIOLATION),
             (fire_alert, EventKind.FIRE_ALERT),
             (fall_alert, EventKind.FALL_ALERT),
-            (stranger_alert, EventKind.STRANGER_ALERT),
+            (occupancy_alert, EventKind.OCCUPANCY_ALERT),
         )
         for is_active, kind in checks:
             if is_active and self._event_dedup.is_new_occurrence(kind):
                 evidence_frame = self._build_evidence_frame(frame)
                 EventStore.instance().add_event(self._device_id, self._device_name, kind, evidence_frame)
                 self._send_incident(evidence_frame, kind)
+
+        self._capture_face_events(frame, stranger_alert)
+
+    def _capture_face_events(self, frame, stranger_alert: bool) -> None:
+        """Ghi Event Log cho khuôn mặt nhận diện được ở lượt AI này
+        (self._last_face_boxes - đã có sẵn từ _check_faces, mỗi phần tử là
+        (x1,y1,x2,y2,nhãn,status - status là 1 trong _FACE_STATUS_KNOWN/
+        _STRANGER/_UNKNOWN) - ảnh bằng chứng là ẢNH CROP KHUÔN MẶT
+        (core/face_crop.py), giống hệt cách Gate Kiosk đã làm
+        (pages/gate_kiosk_page.py::_on_presence_confirmed), KHÔNG phải cả
+        frame - xem lại nhanh đúng mặt ai mà không cần phóng to.
+
+        Người QUEN (status == known): log NGAY mỗi lượt nhận diện MỚI -
+        dedup theo (kind, tên) nên 1 người đứng yên liên tục trong khung
+        không log lặp lại (giống cách "Recognized {name}" đã log ở panel
+        SYSTEM ALARMS/liveview_page.py), không cần thêm lớp xác nhận nào vì
+        similarity đã vượt ngưỡng khớp là đủ tin cậy - khác Stranger (dưới
+        đây). status == unknown KHÔNG log gì cả (chưa đủ căn cứ kết luận là
+        ai - xem _check_faces).
+
+        Người LẠ (status == stranger, ĐÃ qua đủ 3 gate xác nhận): CHỈ log
+        khi stranger_alert đã được xác nhận (streak - xem _check_faces) -
+        tái dùng đúng EventKind.STRANGER_ALERT (không tách theo từng mặt vì
+        không có tracking để biết 2 lượt liền có phải cùng 1 người lạ hay
+        không), ảnh bằng chứng là crop mặt "stranger" đầu tiên tìm được
+        trong lượt này (chắc chắn có ít nhất 1 mặt như vậy - streak chỉ tăng
+        khi lượt đó có mặt status == stranger)."""
+        for x1, y1, x2, y2, name, status in self._last_face_boxes:
+            if status != _FACE_STATUS_KNOWN:
+                continue
+            key = (EventKind.FACE_RECOGNIZED, name)
+            if self._event_dedup.is_new_occurrence(key):
+                evidence = crop_face_with_padding(frame, (x1, y1, x2, y2))
+                EventStore.instance().add_event(
+                    self._device_id, self._device_name, EventKind.FACE_RECOGNIZED, evidence, detail=name
+                )
+
+        if stranger_alert:
+            stranger_box = next((b for b in self._last_face_boxes if b[5] == _FACE_STATUS_STRANGER), None)
+            if stranger_box is not None and self._event_dedup.is_new_occurrence(EventKind.STRANGER_ALERT):
+                evidence = crop_face_with_padding(frame, stranger_box[:4])
+                EventStore.instance().add_event(
+                    self._device_id, self._device_name, EventKind.STRANGER_ALERT, evidence
+                )
+                self._send_incident(evidence, EventKind.STRANGER_ALERT)
 
     def _send_incident(self, evidence_frame, kind: EventKind) -> None:
         """Gửi lên web qua Web_API.send_mobile_incident - CHỈ khi camera đã
@@ -450,8 +533,12 @@ class CameraPipeline(QThread):
         gọi mạng để tra ở đây). Gọi ĐỒNG BỘ ngay trong QThread của pipeline
         này (không bọc thêm threading.Thread như MIRAI - pipeline đã tự chạy
         trong 1 QThread riêng rồi); Web_API tự try/except nên không cần bọc
-        thêm ở đây."""
-        if not self._web_camera_id:
+        thêm ở đây.
+
+        Kind không có mặt trong EVENT_KIND_INCIDENT_TYPE_ID (hiện chỉ có
+        OCCUPANCY_ALERT - xem event_record.py) -> bỏ qua bước gửi web, vẫn
+        đã lưu Event Log/SYSTEM ALARMS ở _capture_events rồi."""
+        if not self._web_camera_id or kind not in EVENT_KIND_INCIDENT_TYPE_ID:
             return
         details = f"{EVENT_KIND_LABELS[kind]} at {self._device_name}"
         Web_API.send_mobile_incident(
@@ -475,7 +562,12 @@ class CameraPipeline(QThread):
         độc lập với Body/Pose - không cần ROI, không cần có người. Không
         làm mượt/debounce thêm - giữ nguyên hành vi gốc (mỗi frame AI có
         box là báo động ngay, bản gốc chỉ throttle việc GỬI alert ra ngoài
-        chứ không throttle chính giá trị phát hiện)."""
+        chứ không throttle chính giá trị phát hiện).
+
+        fire_detection_new.pt có 2 lớp {0: Fire, 1: Smoke} nhưng dùng CHUNG
+        1 ngưỡng AISettings.fire_conf (lọc ngay trong AIModelManager.detect_fire,
+        classes=[0, 1]) - box nào lọt qua model() là đủ điều kiện báo động,
+        không cần lọc lại ở đây."""
         result = AIModelManager.instance().detect_fire(frame, imgsz=self._inference_imgsz)
         boxes = result.boxes
         return boxes is not None and len(boxes) > 0
@@ -487,28 +579,62 @@ class CameraPipeline(QThread):
         Web_API) - khớp thì trả về tên người quen, không khớp thì "Stranger".
         Trả về (list tên người quen thấy trong frame này, có báo động người
         lạ hay không - đã debounce qua _stranger_streak giống PPE, tránh
-        báo nhầm vì 1 frame nhiễu/góc mặt xấu)."""
+        báo nhầm vì 1 frame nhiễu/góc mặt xấu).
+
+        3 TRẠNG THÁI cho mỗi khuôn mặt (self._last_face_boxes, xem
+        _FACE_STATUS_*) - KHÔNG còn nhị phân "khớp/Stranger" như trước (bug
+        đã gặp thật: chỉ quay nghiêng mặt cũng lập tức hiện "Stranger" trên
+        preview dù chưa đủ căn cứ kết luận):
+          - "known"    - similarity vượt ngưỡng khớp (AISettings.
+                         face_similarity_threshold) -> tên thật.
+          - "stranger" - KHÔNG khớp ai VÀ đã qua đủ CẢ 3 gate xác nhận: mặt
+                         nhìn đủ rõ (stranger_confirm_min_score), mặt đủ
+                         THẲNG (stranger_min_frontal_ratio, xem
+                         core/face_pose.py - det_score cao KHÔNG có nghĩa
+                         mặt đang nhìn thẳng), similarity đủ thấp
+                         (stranger_ambiguous_max_sim) - CHỈ trạng thái này
+                         mới góp phần vào streak/cảnh báo/Event Log.
+          - "unknown"  - KHÔNG khớp ai NHƯNG chưa đủ căn cứ để kết luận
+                         Stranger (thiếu 1 trong 3 gate ở trên - mặt mờ/
+                         nghiêng/có nét giống người quen nhưng chưa đủ) -
+                         hiện nhãn "Unknown" (KHÔNG PHẢI "Stranger") trên
+                         preview, không góp phần vào bất kỳ streak/cảnh báo
+                         nào - chỉ chờ lượt AI sau nhìn rõ/thẳng hơn để rơi
+                         hẳn về "known" hoặc "stranger".
+        2 ngưỡng/gate này đều chỉnh được qua UI "AI Setting", áp dụng NGAY
+        toàn hệ thống."""
         faces = AIModelManager.instance().detect_faces(frame, max_num=_FACE_MAX_PER_FRAME)
         store = KnownFacesStore.instance()
+        settings = AISettings.instance()
 
         known_faces: list[str] = []
-        any_stranger = False
-        face_boxes: list[tuple[int, int, int, int, str, bool]] = []
+        any_confirmed_stranger = False
+        face_boxes: list[tuple[int, int, int, int, str, str]] = []
 
         for face in faces:
             if face.det_score < _FACE_DET_SCORE_THRESHOLD:
                 continue
-            name, _sim = store.match(face.normed_embedding)
-            is_stranger = name == "Stranger"
-            if is_stranger:
-                any_stranger = True
-            else:
+            name, sim = store.match(face.normed_embedding, threshold=settings.face_similarity_threshold)
+            if name != "Stranger":
                 known_faces.append(name)
+                status = _FACE_STATUS_KNOWN
+                label = name
+            elif (
+                face.det_score >= settings.stranger_confirm_min_score
+                and estimate_face_frontal_ratio(face.kps) >= settings.stranger_min_frontal_ratio
+                and sim <= settings.stranger_ambiguous_max_sim
+            ):
+                any_confirmed_stranger = True
+                status = _FACE_STATUS_STRANGER
+                label = "Stranger"
+            else:
+                status = _FACE_STATUS_UNKNOWN
+                label = "Unknown"
             x1, y1, x2, y2 = map(int, face.bbox)
-            face_boxes.append((x1, y1, x2, y2, name, is_stranger))
+            face_boxes.append((x1, y1, x2, y2, label, status))
 
         self._last_face_boxes = face_boxes
-        self._stranger_streak = self._stranger_streak + 1 if any_stranger else 0
+        self._stranger_streak = self._stranger_streak + 1 if any_confirmed_stranger else 0
         stranger_alert = self._stranger_streak >= _STRANGER_STREAK_REQUIRED
         return known_faces, stranger_alert
 
@@ -689,8 +815,12 @@ class CameraPipeline(QThread):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA,
                     )
 
-        for x1, y1, x2, y2, name, is_stranger in self._last_face_boxes:
-            color = (0, 100, 255) if is_stranger else (0, 200, 0)  # BGR: cam/đỏ = lạ, xanh lá = quen
+        for x1, y1, x2, y2, name, status in self._last_face_boxes:
+            # BGR: xanh lá = quen, cam/đỏ = Stranger ĐÃ XÁC NHẬN, vàng = chưa
+            # đủ căn cứ kết luận (unknown - xem _check_faces) - CHỦ Ý khác
+            # màu Stranger để không gây hiểu lầm là đã xác nhận người lạ chỉ
+            # vì 1 góc mặt/chất lượng chưa đủ.
+            color = _FACE_STATUS_COLORS.get(status, (0, 200, 0))
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
                 frame, name, (x1, max(15, y1 - 8)),
@@ -731,6 +861,7 @@ class CameraPipeline(QThread):
         fire_alert: bool = False,
         fall_alert: bool = False,
         fall_bbox: tuple[int, int, int, int] | None = None,
+        occupancy_alert: bool = False,
         known_faces: list[str] | None = None,
         stranger_alert: bool = False,
     ) -> None:
@@ -751,6 +882,7 @@ class CameraPipeline(QThread):
                 "ppe_violation": ppe_violation,
                 "fire_alert": fire_alert,
                 "fall_alert": fall_alert,
+                "occupancy_alert": occupancy_alert,
                 "known_faces": known_faces or [],
                 "stranger_alert": stranger_alert,
             },
