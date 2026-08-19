@@ -69,6 +69,7 @@ _ALARM_KINDS = [
     ("fall_alert", "🚨 Fall"),
     ("stranger_alert", "🧑‍❓ Stranger"),
     ("occupancy_alert", "👥 Overcrowding"),
+    ("crowd_alert", "🌡️ Crowd Density"),
 ]
 
 _PRESENCE_GRACE_SEC = 5.0   # giống liveview_page.py - tránh Event Feed nhảy text liên tục

@@ -57,11 +57,12 @@ _TR_TEXT_MAP = {
     "check_enable_counting": "Count people in/out  (requires drawing a Counting Line)",
     "check_enable_occupancy": "Monitor current occupancy  (ROI recommended)",
     "lbl_occupancy_threshold": "Alert if occupancy exceeds",
+    "lbl_crowd_heatmap_threshold": "Alert on localized crowd density",
     "check_enable_ppe": "PPE monitoring  (requires drawing an ROI)",
     "check_enable_fire": "Fire Detection",
     "check_enable_fall": "Fall Detection",
     "check_enable_face_recognition": "Face recognition - alert on strangers / recognize known people",
-    "lbl_stranger_repeat_mode": "Repeat Stranger alert",
+    "lbl_stranger_repeat_mode": "Repeat notifications",
     "btn_refresh_known_faces": "🔄  Refresh Known Faces",
     "btn_open_pipeline_config": "⚙  Open Pipeline Config",
     "lbl_roi_preview_placeholder": "Click \"Open ROI Editor…\" to draw ROI/Counting Line directly on the camera feed",
@@ -110,10 +111,10 @@ _TR_TITLE_MAP = {
 }
 _TR_TOOLTIP_MAP = {
     "combo_stranger_repeat_mode": (
-        "How to handle the SAME lingering stranger being seen again after briefly turning away/being "
-        "partly hidden. \"Notify once\" only alerts the first time until they leave the frame entirely. "
-        "\"Repeat after grace period\" alerts again if they go quiet for a while and get reconfirmed - "
-        "same behavior as PPE/Fire/Fall/Overcrowding."
+        "How to handle the SAME person (known or stranger) being seen again after briefly turning away/"
+        "being partly hidden. \"Notify once\" only alerts/logs the first time until they leave the frame "
+        "entirely. \"Repeat after grace period\" alerts/logs again if they go quiet for a while and get "
+        "reconfirmed - same behavior as PPE/Fire/Fall/Overcrowding."
     ),
     "edit_camera_id": (
         "App-generated internal ID used as the lookup key for this camera in DeviceManager - not editable, "
@@ -155,6 +156,12 @@ _TR_TOOLTIP_MAP = {
         "0 = no alert (unlimited). When the number of people currently in view goes above this number, an "
         "alert is raised (SYSTEM ALARMS + Event Log) - it will not repeat while the count stays above the "
         "threshold continuously, only again after it drops back down and exceeds it again."
+    ),
+    "spin_crowd_heatmap_threshold": (
+        "0 = off. Unlike \"Alert if occupancy exceeds\" (total headcount), this tracks LOCALIZED density - "
+        "people clustering in the same small area of the ROI, even if the total count is still under the "
+        "occupancy limit. Builds up the longer people linger in one spot, cools down a few seconds after "
+        "they leave. When set above 0, a heatmap overlay is also shown on the live view."
     ),
 }
 _TR_COMBO_ITEMS = {
@@ -205,6 +212,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         for attr, key in _TR_TOOLTIP_MAP.items():
             getattr(self, attr).setToolTip(tr(key))
         self.spin_occupancy_threshold.setSpecialValueText(tr("Off"))
+        self.spin_crowd_heatmap_threshold.setSpecialValueText(tr("Off"))
         self.edit_search_camera.setPlaceholderText(tr("Search camera…"))
         for attr, keys in _TR_COMBO_ITEMS.items():
             combo = getattr(self, attr)
@@ -347,6 +355,7 @@ class CameraConfigPage(QtWidgets.QWidget):
         self.check_enable_counting.setChecked(device.ai.enable_counting)
         self.check_enable_occupancy.setChecked(device.ai.enable_occupancy)
         self.spin_occupancy_threshold.setValue(device.ai.occupancy_threshold)
+        self.spin_crowd_heatmap_threshold.setValue(device.ai.crowd_heatmap_threshold)
         self.check_enable_ppe.setChecked(device.ai.enable_ppe)
         self.check_enable_fire.setChecked(device.ai.enable_fire)
         self.check_enable_fall.setChecked(device.ai.enable_fall)
@@ -411,6 +420,7 @@ class CameraConfigPage(QtWidgets.QWidget):
                 enable_counting=self.check_enable_counting.isChecked(),
                 enable_occupancy=self.check_enable_occupancy.isChecked(),
                 occupancy_threshold=self.spin_occupancy_threshold.value(),
+                crowd_heatmap_threshold=self.spin_crowd_heatmap_threshold.value(),
                 enable_ppe=self.check_enable_ppe.isChecked(),
                 enable_fire=self.check_enable_fire.isChecked(),
                 enable_fall=self.check_enable_fall.isChecked(),

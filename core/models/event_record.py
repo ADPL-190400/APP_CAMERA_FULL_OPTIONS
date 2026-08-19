@@ -30,6 +30,11 @@ class EventKind(str, Enum):
     # Web_API.send_mobile_employee) - đây chỉ là log "đã thấy người này qua
     # camera", không kèm hành động điểm danh nào.
     FACE_RECOGNIZED = "face_recognized"
+    # Mật độ đông CỤC BỘ (heatmap lưới theo vùng ROI, xem
+    # CameraPipeline._update_crowd_heatmap) - KHÁC OCCUPANCY_ALERT (đếm TỔNG
+    # số người trong ROI): cảnh báo này bắt trường hợp người tụ tập dồn vào 1
+    # góc nhỏ dù tổng số người chưa vượt ngưỡng occupancy.
+    CROWD_ALERT = "crowd_alert"
 
 
 # kind -> tên hiển thị (dùng chung cho event_log_page + mọi nơi khác cần label)
@@ -42,6 +47,7 @@ EVENT_KIND_LABELS: dict[EventKind, str] = {
     EventKind.FACE_CHECKOUT: "Check-out",
     EventKind.OCCUPANCY_ALERT: "Overcrowding",
     EventKind.FACE_RECOGNIZED: "Recognized",
+    EventKind.CROWD_ALERT: "Crowd Density",
 }
 
 # kind -> type_id gửi kèm Web_API.send_mobile_incident() - đã xác nhận với
@@ -51,9 +57,9 @@ EVENT_KIND_LABELS: dict[EventKind, str] = {
 # chung cả core/camera_pipeline.py lẫn pages/gate_kiosk_page.py (stranger
 # băng qua vạch) - tránh rải số ma thuật rời rạc như MIRAI.
 #
-# OCCUPANCY_ALERT CHỦ Ý không có mặt ở đây - chưa có type_id nào được xác
-# nhận với backend cho cảnh báo này, nên chỉ hiện tại chỗ (Event Log/SYSTEM
-# ALARMS), KHÔNG đẩy lên mobile app (xem CameraPipeline._capture_events -
+# OCCUPANCY_ALERT/CROWD_ALERT CHỦ Ý không có mặt ở đây - chưa có type_id nào
+# được xác nhận với backend cho 2 cảnh báo này, nên chỉ hiện tại chỗ (Event
+# Log/SYSTEM ALARMS), KHÔNG đẩy lên mobile app (xem CameraPipeline._capture_events -
 # tự bỏ qua bước gửi web cho kind nào không có mặt trong dict này).
 EVENT_KIND_INCIDENT_TYPE_ID: dict[EventKind, int] = {
     EventKind.PPE_VIOLATION: 1,

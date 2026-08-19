@@ -40,6 +40,18 @@ class AISettings:
     # đụng tới.
     face_similarity_threshold: float = 0.7
 
+    # Ngưỡng "vẫn là ĐÚNG 1 người này" khi bắc cầu qua lúc track DeepSort
+    # chết (quay đầu/cúi xuống đủ lâu để mất dấu, xem
+    # core/camera_pipeline.py::_recall_face_memory/_remember_face) - KHÁC
+    # face_similarity_threshold (đó là so với ảnh ĐĂNG KÝ của người quen,
+    # thường chụp khác ngày/khác góc nên cần nới hơn; đây là so 2 lần thấy
+    # CÙNG 1 buổi, thường giống nhau hơn hẳn nên đặt CHẶT hơn để tránh nhận
+    # nhầm 2 người lạ trông giống nhau thành 1 - lỡ nhận nhầm sẽ "miễn thông
+    # báo" oan cho 1 người lạ hoàn toàn khác). Cao hơn = chặt hơn (ít nhận
+    # nhầm 2 người khác nhau, nhưng dễ không bắc cầu được nếu góc/ánh sáng
+    # đổi nhiều giữa 2 lần thấy); thấp hơn = lỏng hơn.
+    face_memory_match_threshold: float = 0.6
+
     # "Xác nhận té ngã" (core/camera_pipeline.py::_check_fall): trong
     # fall_confirm_window lượt AI GẦN NHẤT, phải có ÍT NHẤT
     # fall_confirm_min_count lượt phát hiện "đang ngã" (fall_conf ở trên đã

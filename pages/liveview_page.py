@@ -34,6 +34,7 @@ _ALARM_KINDS = [
     ("fall_alert", "🚨 Fall"),
     ("stranger_alert", "🧑‍❓ Stranger"),
     ("occupancy_alert", "👥 Overcrowding"),
+    ("crowd_alert", "🌡️ Crowd Density"),
 ]
 
 # Gián đoạn phát hiện ngắn hơn mức này vẫn tính là "đang tiếp diễn" (không

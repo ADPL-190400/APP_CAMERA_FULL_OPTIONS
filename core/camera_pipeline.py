@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import time
 from collections import deque
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -100,10 +101,75 @@ _FACE_STATUS_COLORS = {  # BGR - xem _draw_overlay
 _STRANGER_REPEAT_ONCE = "Notify once per visit"
 _STRANGER_REPEAT_GRACE_PERIOD = "Repeat after grace period"
 
+# "Bộ nhớ tạm" khuôn mặt (self._face_memory) - CẦU NỐI qua những lúc track
+# DeepSort chết (người quay đầu/cúi xuống đủ lâu để mất dấu, xem
+# _get_face_tracker - MAX_AGE chỉ chịu được vài giây) rồi được cấp track_id
+# MỚI khi xuất hiện lại. Không có bộ nhớ này thì mọi trạng thái theo track
+# (_face_track_identity/_seen_well/_best_sim/_notified) mất trắng, khiến:
+#   - Người LẠ: bị xác nhận + THÔNG BÁO LẶP LẠI dù là đúng 1 người (mỗi lần
+#     quay đầu xong nhìn lại đủ lâu để track chết là 1 "người lạ mới").
+#   - Người QUEN: phải "chứng minh lại" từ đầu (hiện "Unknown" 1 lúc dù đã
+#     từng nhận diện được) mỗi khi track đổi, dù KnownFacesStore vẫn nhận ra
+#     đúng tên ngay khi có 1 frame đủ tốt - bộ nhớ này chỉ giúp bắt kịp NGAY
+#     lúc track vừa đổi, không cần chờ thêm 1 frame chất lượng tốt mới.
+# Khớp theo COSINE SIMILARITY giữa embedding hiện tại và embedding đã lưu
+# (KHÔNG phải track_id) - hoạt động được kể cả khi DeepSort đổi hẳn track_id,
+# miễn khuôn mặt vẫn là CÙNG 1 người.
+_FACE_MEMORY_TTL_SEC = 60.0        # quên hẳn sau 60s không thấy lại - đủ dài để bắt kịp lúc quay đầu/cúi xuống, đủ ngắn để không tồn đọng vô hạn
+_FACE_MEMORY_MAX_ENTRIES = 50      # trần số người "đang nhớ" cùng lúc - tránh phình to vô hạn nếu camera thấy rất nhiều mặt khác nhau qua ngày dài
+
+
+@dataclass
+class _RememberedFace:
+    """1 entry trong self._face_memory - xem hằng số _FACE_MEMORY_* phía
+    trên. best_sim CHỈ có ý nghĩa khi name is None (ứng viên/đã xác nhận
+    Stranger). notified (đã ghi Event Log/thông báo hay chưa, chế độ "once"
+    - xem _should_notify_face) có ý nghĩa cho CẢ 2 - người quen VÀ người
+    lạ."""
+    embedding: np.ndarray
+    last_seen: float
+    name: str | None
+    best_sim: float = 0.0
+    notified: bool = False
+
 # Event Log: cùng ngưỡng "đợt vi phạm mới" với Event Feed/System Alarms
 # (dashboard_page.py/liveview_page.py) - tránh lưu ảnh spam liên tục trong
 # lúc 1 điều kiện vẫn còn đúng.
 _EVENT_LOG_GRACE_SEC = 5.0
+
+# Crowd heatmap (AIConfig.crowd_heatmap_threshold) - lưới nhiệt tích luỹ có
+# suy giảm theo thời gian, đo MẬT ĐỘ CỤC BỘ thay vì chỉ đếm tổng số người
+# (_count_occupancy) - xem docstring đầy đủ ở _update_crowd_heatmap. Kích
+# thước lưới CỐ ĐỊNH bất kể resolution camera (mỗi ô tự co giãn theo kích
+# thước frame thật ở _update_crowd_heatmap) - đủ thô để rẻ, đủ mịn để phân
+# biệt được các góc khác nhau trong 1 ROI.
+_HEATMAP_GRID_ROWS = 12
+_HEATMAP_GRID_COLS = 16
+# Nhiệt 1 ô giảm còn 1 nửa sau mỗi khoảng này (giây) nếu không có thêm ai
+# đứng ở đó - KHÔNG tính theo số lượt AI (ai_fps_limit đổi được từng
+# camera) để tốc độ "nguội" luôn nhất quán theo thời gian thật.
+_HEATMAP_HALF_LIFE_SEC = 3.0
+# Chặn trần 1 ô - tránh tích luỹ vô hạn ở chỗ luôn đông liên tục hàng giờ,
+# giữ thang đo threshold có ý nghĩa ổn định để người dùng dễ chỉnh.
+_HEATMAP_CELL_MAX = 20.0
+# Ô nóng nhất dưới mức này (so với crowd_heatmap_threshold, tỉ lệ 0..1) coi
+# như "chưa có gì đáng vẽ" -> bỏ qua HẲN bước vẽ overlay (_blend_heatmap) -
+# đa số thời gian thực tế không ai tụ tập nên nhánh này chạy hầu hết các
+# lượt, tránh phí công vẽ 1 lớp phủ gần như trong suốt hoàn toàn không ai
+# nhìn thấy khác biệt. Xem _draw_overlay.
+_HEATMAP_DRAW_EPSILON = 0.05
+# Kernel 3x3 "vẩy" nhiệt quanh ô trung tâm mỗi khi có 1 người đứng đó - làm
+# mượt lưới (đỡ trông "vuông vức"/giật khi người đứng lệch ranh giới 2 ô),
+# tổng các trọng số = 1.0 nên mỗi người luôn đóng góp ĐÚNG "1 đơn vị nhiệt"/
+# lượt bất kể vị trí trong ô.
+_HEATMAP_KERNEL = np.array(
+    [
+        [0.05, 0.10, 0.05],
+        [0.10, 0.40, 0.10],
+        [0.05, 0.10, 0.05],
+    ],
+    dtype=np.float32,
+)
 
 # Bước chờ giữa các lần thử reconnect (xem _reconnect) - đủ nhỏ để stop()
 # luôn có hiệu lực trong vòng thời gian DeviceManager.stop_device() chờ
@@ -114,7 +180,7 @@ _RECONNECT_POLL_MS = 200
 class CameraPipeline(QThread):
     frame_ready = pyqtSignal(str, QImage)   # device_id, frame (chỉ emit khi có viewer)
     error_occurred = pyqtSignal(str, str)   # device_id, message
-    ai_result_ready = pyqtSignal(str, dict)  # device_id, {"num_people","num_in","num_out","ppe_violation","fire_alert","fall_alert","occupancy_alert","stranger_alert","stranger_track_ids","known_faces"}
+    ai_result_ready = pyqtSignal(str, dict)  # device_id, {"num_people","num_in","num_out","ppe_violation","fire_alert","fall_alert","occupancy_alert","crowd_alert","stranger_alert","stranger_track_ids","known_faces"}
 
     def __init__(
         self,
@@ -130,6 +196,7 @@ class CameraPipeline(QThread):
         enable_counting: bool = False,
         enable_occupancy: bool = False,
         occupancy_threshold: int = 0,
+        crowd_heatmap_threshold: float = 0.0,
         enable_ppe: bool = False,
         enable_fire: bool = False,
         enable_fall: bool = False,
@@ -200,6 +267,14 @@ class CameraPipeline(QThread):
         # x1,y1,x2,y2,label,status (_FACE_STATUS_*),track_id,in_roi
         self._last_face_boxes: list[tuple[int, int, int, int, str, str, int, bool]] = []
 
+        # Lưới nhiệt đám đông cục bộ (xem hằng số _HEATMAP_*/_update_crowd_heatmap)
+        # - khởi tạo lazy (None) vì cần biết kích thước frame thật (chỉ có từ
+        # _run_ai trở đi) để chia ô cho khớp. _heatmap_last_ts dùng tính dt
+        # thực tế giữa 2 lượt cập nhật (ai_fps_limit đổi được, không cố định)
+        # cho tốc độ suy giảm luôn đúng theo thời gian thật.
+        self._heatmap_grid: np.ndarray | None = None
+        self._heatmap_last_ts: float = 0.0
+
         # Face recognition: tracker DeepSort RIÊNG cho khuôn mặt (KHÁC
         # self._tracker ở trên - đó là tracker cho bbox ĐẦU/THÂN dùng cho
         # đếm vào/ra/occupancy/PPE, không liên quan) - PORT nguyên cơ chế từ
@@ -233,6 +308,18 @@ class CameraPipeline(QThread):
         # (DeepSort tự chịu được vài giây mất dấu) sẽ KHÔNG bị báo lại, dù
         # khoảng "im lặng" giữa 2 lần thấy rõ có dài hơn vài giây.
         self._face_track_notified: set[int] = set()
+        # "Bộ nhớ tạm" bắc cầu qua lúc track chết (xem hằng số _FACE_MEMORY_*
+        # và _recall_face_memory/_remember_face) - danh sách phẳng (không
+        # cần key track_id, tự tra bằng cosine similarity embedding).
+        self._face_memory: list[_RememberedFace] = []
+        # track_id -> embedding gần nhất (cập nhật ở _bind_face_identities) -
+        # CẦU NỐI để _capture_face_events cập nhật LẠI bộ nhớ tạm ĐÚNG lúc
+        # 1 track vừa được đánh dấu "đã thông báo" (_face_track_notified),
+        # vì lúc _bind_face_identities gọi _remember_face (bên trong
+        # _check_faces) thì _capture_face_events CHƯA chạy tới - ghi lúc đó
+        # sẽ chụp sai "chưa thông báo" cho bộ nhớ dù thực ra sắp thông báo
+        # ngay trong cùng lượt AI này.
+        self._face_track_last_embedding: dict[int, np.ndarray] = {}
 
         # Toàn bộ cờ enable/ROI/Line/Overlay được gom vào update_ai_settings()
         # - dùng chung cho cả lúc khởi tạo LẪN khi DeviceManager đẩy cấu hình
@@ -243,6 +330,7 @@ class CameraPipeline(QThread):
             enable_counting=enable_counting,
             enable_occupancy=enable_occupancy,
             occupancy_threshold=occupancy_threshold,
+            crowd_heatmap_threshold=crowd_heatmap_threshold,
             enable_ppe=enable_ppe,
             enable_fire=enable_fire,
             enable_fall=enable_fall,
@@ -265,6 +353,7 @@ class CameraPipeline(QThread):
         enable_counting: bool,
         enable_occupancy: bool,
         occupancy_threshold: int,
+        crowd_heatmap_threshold: float,
         enable_ppe: bool,
         enable_fire: bool,
         enable_fall: bool,
@@ -302,6 +391,9 @@ class CameraPipeline(QThread):
         self._enable_occupancy = enable_occupancy
         # 0 = tắt cảnh báo (xem AIConfig.occupancy_threshold/_run_ai).
         self._occupancy_threshold = occupancy_threshold
+        # 0 = tắt cảnh báo/overlay đám đông cục bộ (xem
+        # AIConfig.crowd_heatmap_threshold/_update_crowd_heatmap).
+        self._crowd_heatmap_threshold = crowd_heatmap_threshold
         self._enable_ppe = enable_ppe
         self._enable_fire = enable_fire
         self._enable_fall = enable_fall
@@ -469,6 +561,11 @@ class CameraPipeline(QThread):
                 if need_tracking:
                     self._last_tracks = []
                     self._prune_track_history(active_ids=set())
+                    # Vẫn phải cập nhật (decay) lưới nhiệt dù KHÔNG có ai -
+                    # nhiệt cần "nguội" đúng theo thời gian thật kể cả lúc
+                    # khung hình trống, không chỉ lúc có người.
+                    if self._enable_occupancy and self._crowd_heatmap_threshold > 0:
+                        self._update_crowd_heatmap([], frame.shape)
                 if self._enable_ppe:
                     self._ppe_violation_streak = 0
             else:
@@ -483,6 +580,8 @@ class CameraPipeline(QThread):
                         self._update_counting(outputs)
                     if self._enable_occupancy:
                         num_people = self._count_occupancy(outputs)
+                        if self._crowd_heatmap_threshold > 0:
+                            self._update_crowd_heatmap(outputs, frame.shape)
                 if self._enable_ppe:
                     ppe_violation = self._check_ppe(frame, boxes)
 
@@ -498,8 +597,17 @@ class CameraPipeline(QThread):
         occupancy_alert = (
             self._enable_occupancy and self._occupancy_threshold > 0 and num_people > self._occupancy_threshold
         )
+        # Đám đông CỤC BỘ (heatmap) - KHÁC occupancy_alert (đếm tổng): dựa
+        # trên Ô NÓNG NHẤT hiện tại của lưới, xem _update_crowd_heatmap.
+        # self._heatmap_grid vẫn None nếu enable_occupancy chưa từng bật (lazy
+        # init) - kiểm tra None trước để không lỗi.
+        crowd_alert = (
+            self._crowd_heatmap_threshold > 0
+            and self._heatmap_grid is not None
+            and float(self._heatmap_grid.max()) >= self._crowd_heatmap_threshold
+        )
 
-        self._capture_events(frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert)
+        self._capture_events(frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert, crowd_alert)
 
         self._emit_ai_result(
             num_people=num_people,
@@ -508,13 +616,14 @@ class CameraPipeline(QThread):
             fall_alert=fall_alert,
             fall_bbox=fall_bbox,
             occupancy_alert=occupancy_alert,
+            crowd_alert=crowd_alert,
             known_faces=known_faces,
             stranger_alert=stranger_alert,
             stranger_track_ids=stranger_track_ids,
         )
 
     def _capture_events(
-        self, frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert
+        self, frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert, crowd_alert
     ) -> None:
         """Lưu ảnh bằng chứng (EventStore) cho mỗi ĐỢT cảnh báo MỚI - dedup
         qua PresenceDedup (cùng ngưỡng grace với Event Feed/System Alarms),
@@ -541,10 +650,16 @@ class CameraPipeline(QThread):
             (fire_alert, EventKind.FIRE_ALERT),
             (fall_alert, EventKind.FALL_ALERT),
             (occupancy_alert, EventKind.OCCUPANCY_ALERT),
+            (crowd_alert, EventKind.CROWD_ALERT),
         )
         for is_active, kind in checks:
             if is_active and self._event_dedup.is_new_occurrence(kind):
-                evidence_frame = self._build_evidence_frame(frame)
+                # CROWD_ALERT CẦN thấy lớp phủ heatmap trong ảnh bằng chứng -
+                # khác PPE/Fire/Fall/Occupancy (chỉ cần thấy CÓ vi phạm/đông
+                # người), cảnh báo này ý nghĩa nằm ở VỊ TRÍ tụ tập CỤ THỂ
+                # trong ROI, xem lại Event Log sau này mà không có overlay
+                # thì không biết đông ở đâu, chỉ biết "có báo động".
+                evidence_frame = self._build_evidence_frame(frame, include_heatmap=(kind == EventKind.CROWD_ALERT))
                 EventStore.instance().add_event(self._device_id, self._device_name, kind, evidence_frame)
                 self._send_incident(evidence_frame, kind)
 
@@ -559,28 +674,24 @@ class CameraPipeline(QThread):
         (pages/gate_kiosk_page.py::_on_presence_confirmed), KHÔNG phải cả
         frame - xem lại nhanh đúng mặt ai mà không cần phóng to.
 
-        Người QUEN (status == known): dedup theo (kind, tên) - 1 người đứng
-        yên liên tục trong khung không log lặp lại.
-
-        Người LẠ (status == stranger, ĐÃ qua đủ gate xác nhận nhờ tracking -
-        xem _check_faces/_bind_face_identities): 1 trong 2 CHẾ ĐỘ chống spam
-        chọn riêng từng camera (AIConfig.stranger_repeat_mode, Camera Config
-        tab AI) - KHÁC bản cũ dùng chung 1 key EventKind.STRANGER_ALERT cho
-        MỌI người lạ trên camera (bug đã gặp thật: 1 người lạ đứng lâu quay
-        đầu qua lại làm status "tắt/bật" liên tục do đánh giá lại từ đầu mỗi
-        frame -> mỗi lần "bật" lại sau grace period bị tính là người lạ MỚI
-        -> spam) - cả 2 chế độ đều dedup theo TỪNG track_id riêng (người lạ
-        khác nhau vẫn được báo riêng, không lẫn nhau), chỉ khác THỜI ĐIỂM
-        được báo lại cho ĐÚNG 1 track:
+        Người QUEN (status == known) VÀ Người LẠ (status == stranger, ĐÃ
+        qua đủ gate xác nhận nhờ tracking - xem _check_faces/
+        _bind_face_identities) dùng CHUNG 1 trong 2 CHẾ ĐỘ chống spam chọn
+        riêng từng camera (AIConfig.stranger_repeat_mode, Camera Config tab
+        AI - tên field còn giữ "stranger" vì lịch sử, NHƯNG áp dụng cho CẢ
+        2 loại từ khi thêm chế độ "once") - xem _should_notify_face:
           - "once"         - CHỈ thông báo 1 LẦN DUY NHẤT cho mỗi track
                              (self._face_track_notified), tới khi track đó
                              biến mất khỏi khung hình hẳn - không phụ thuộc
-                             mốc thời gian nào.
+                             mốc thời gian nào. Có bắc cầu qua bộ nhớ tạm
+                             (_face_memory) nếu track chết rồi được cấp
+                             track_id mới cho ĐÚNG người đó.
           - "grace_period" - thông báo lại nếu track đó "im lặng" (không có
-                             lượt nào xác nhận Stranger) lâu hơn
-                             _EVENT_LOG_GRACE_SEC giây rồi xác nhận lại
-                             (self._event_dedup, giống PPE/Fire/Fall/
-                             Occupancy).
+                             lượt nào xác nhận) lâu hơn _EVENT_LOG_GRACE_SEC
+                             giây rồi xác nhận lại (self._event_dedup, giống
+                             PPE/Fire/Fall/Occupancy) - người quen dedup
+                             theo TÊN (không phải track_id, xem docstring
+                             cũ), người lạ dedup theo track_id.
 
         in_roi (xem _check_faces) - CHỈ ghi Event Log cho khuôn mặt trong
         vùng ROI (camera có cấu hình) - người ngoài vùng quan tâm không tạo
@@ -589,25 +700,51 @@ class CameraPipeline(QThread):
             if not in_roi:
                 continue
             if status == _FACE_STATUS_KNOWN:
-                key = (EventKind.FACE_RECOGNIZED, name)
-                if self._event_dedup.is_new_occurrence(key):
+                if self._should_notify_face(track_id, grace_key=(EventKind.FACE_RECOGNIZED, name)):
                     evidence = crop_face_with_padding(frame, (x1, y1, x2, y2))
                     EventStore.instance().add_event(
                         self._device_id, self._device_name, EventKind.FACE_RECOGNIZED, evidence, detail=name
                     )
             elif status == _FACE_STATUS_STRANGER:
-                if self._stranger_repeat_mode == _STRANGER_REPEAT_GRACE_PERIOD:
-                    should_notify = self._event_dedup.is_new_occurrence((EventKind.STRANGER_ALERT, track_id))
-                else:
-                    should_notify = track_id not in self._face_track_notified
-                    if should_notify:
-                        self._face_track_notified.add(track_id)
-                if should_notify:
+                if self._should_notify_face(track_id, grace_key=(EventKind.STRANGER_ALERT, track_id)):
                     evidence = crop_face_with_padding(frame, (x1, y1, x2, y2))
                     EventStore.instance().add_event(
                         self._device_id, self._device_name, EventKind.STRANGER_ALERT, evidence
                     )
                     self._send_incident(evidence, EventKind.STRANGER_ALERT)
+
+    def _should_notify_face(self, track_id: int, grace_key) -> bool:
+        """Quyết định có nên ghi Event Log/thông báo cho track này hay
+        không - dùng CHUNG cho cả người quen VÀ người lạ (xem
+        _capture_face_events), theo đúng AIConfig.stranger_repeat_mode:
+          - "grace_period" - self._event_dedup theo grace_key (khác nhau
+                             giữa người quen/tên và người lạ/track_id - xem
+                             2 nơi gọi).
+          - "once" (mặc định) - self._face_track_notified theo track_id,
+                             KHÔNG dùng grace_key. Ghi lại "đã thông báo"
+                             vào bộ nhớ tạm (_remember_face) NGAY lúc này
+                             (không đợi lượt AI sau) - lúc _bind_face_identities
+                             ghi bộ nhớ (trong _check_faces, TRƯỚC khi hàm
+                             này chạy) thì track vẫn CHƯA được đánh dấu "đã
+                             thông báo", nên bản ghi cũ còn notified=False -
+                             phải sửa lại ngay, nếu không track chết ngay
+                             sau lượt thông báo ĐẦU TIÊN sẽ để lại bộ nhớ
+                             SAI, làm mất tác dụng chống spam khi xuất hiện
+                             lại."""
+        if self._stranger_repeat_mode == _STRANGER_REPEAT_GRACE_PERIOD:
+            return self._event_dedup.is_new_occurrence(grace_key)
+        if track_id in self._face_track_notified:
+            return False
+        self._face_track_notified.add(track_id)
+        last_embedding = self._face_track_last_embedding.get(track_id)
+        if last_embedding is not None:
+            self._remember_face(
+                last_embedding,
+                name=self._face_track_identity.get(track_id),
+                best_sim=self._face_track_best_sim.get(track_id, 0.0),
+                notified=True,
+            )
+        return True
 
     def _send_incident(self, evidence_frame, kind: EventKind) -> None:
         """Gửi lên web qua Web_API.send_mobile_incident - CHỈ khi camera đã
@@ -628,14 +765,24 @@ class CameraPipeline(QThread):
             evidence_frame, details, EVENT_KIND_INCIDENT_TYPE_ID[kind], self._web_camera_id
         )
 
-    def _build_evidence_frame(self, frame):
+    def _build_evidence_frame(self, frame, include_heatmap: bool = False):
         """Ảnh bằng chứng = frame gốc + vẽ vùng ROI (nếu camera có cấu hình)
         để biết rõ vùng làm việc/khu vực liên quan tới cảnh báo. Vẽ trên 1
         BẢN SAO, không đụng tới frame gốc (vẫn được dùng tiếp cho overlay
-        preview ngay sau _run_ai trong run())."""
-        if not self._roi_polygons:
+        preview ngay sau _run_ai trong run()).
+
+        include_heatmap=True (CHỈ CROWD_ALERT dùng, xem _capture_events) -
+        vẽ THÊM lớp phủ heatmap (_blend_heatmap, cùng hàm dùng cho preview
+        LiveView) TRƯỚC khi vẽ viền ROI - giữ ĐÚNG thứ tự lớp như
+        _draw_overlay (heatmap dưới cùng, ROI vẽ đè lên trên cho rõ viền) -
+        để xem lại Event Log sau này thấy được CHÍNH XÁC khu vực nào đang
+        tụ tập lúc cảnh báo được ghi, không chỉ biết chung chung "có báo
+        động"."""
+        if not self._roi_polygons and not include_heatmap:
             return frame
         evidence = frame.copy()
+        if include_heatmap and self._heatmap_grid is not None and self._crowd_heatmap_threshold > 0:
+            self._blend_heatmap(evidence)
         for polygon in self._roi_polygons:
             cv2.polylines(evidence, [polygon], isClosed=True, color=(120, 200, 0), thickness=2)
         return evidence
@@ -700,30 +847,65 @@ class CameraPipeline(QThread):
         toàn hệ thống.
 
         ROI (tab ROI, nếu camera có vẽ ít nhất 1 vùng) - giống hệt cách Gate
-        Kiosk giới hạn theo vùng "cổng" (pages/gate_kiosk_page.py): khuôn
-        mặt/track vẫn được DETECT + TRACK + NHẬN DIỆN bình thường trên TOÀN
-        khung hình (không cắt bớt vùng nhìn thấy trên preview - vẫn thấy đủ
-        tên/trạng thái mọi người, kể cả ngoài ROI), nhưng CHỈ khuôn mặt có
-        TÂM bbox nằm trong ROI mới được TÍNH VÀO known_faces/cảnh báo Stranger/
-        Event Log (xem _capture_face_events) - người ngoài vùng quan tâm
-        không tạo thông báo/không ghi log, dù vẫn hiện đúng tên/trạng thái
-        trên khung preview. Camera CHƯA vẽ ROI nào (roi_polygons rỗng) ->
-        KHÔNG giới hạn, xét toàn khung hình như trước (giữ nguyên hành vi cũ
-        cho camera chưa cấu hình ROI)."""
-        faces = AIModelManager.instance().detect_faces(frame, max_num=_FACE_MAX_PER_FRAME)
+        Kiosk giới hạn theo vùng "cổng" (pages/gate_kiosk_page.py): CHỈ
+        khuôn mặt có TÂM bbox nằm TRONG ROI mới được DETECT + TRACK + NHẬN
+        DIỆN (lọc ngay từ bước gọi AIModelManager.detect_faces - truyền
+        self._roi_polygons vào, xem docstring hàm đó) - khuôn mặt ngoài
+        ROI bị loại NGAY TỪ ĐẦU, không hiện trên preview, không tốn công
+        nhận diện/tracking, không chiếm "suất" _FACE_MAX_PER_FRAME của mặt
+        thật sự trong ROI (bug đã gặp thật: đám đông NGOÀI ROI to hơn/gần
+        tâm khung hình hơn từng chiếm hết 10 "suất" theo heuristic mặc định
+        của insightface, khiến mặt THẬT SỰ trong ROI không bao giờ lọt vào
+        để mà nhận diện dù camera vẫn "thấy" họ). Camera CHƯA vẽ ROI nào
+        (roi_polygons rỗng) -> KHÔNG giới hạn, xét toàn khung hình như
+        trước (giữ nguyên hành vi cũ cho camera chưa cấu hình ROI).
+
+        in_roi trong self._last_face_boxes (xem _capture_face_events) giờ
+        LUÔN True (mọi mặt lọt qua detect_faces đã chắc chắn trong ROI rồi,
+        hoặc camera không có ROI nào để lọc) - CHỦ Ý giữ lại field/lượt kiểm
+        tra này thay vì bỏ đi, làm lớp phòng vệ rẻ tiền phòng trường hợp
+        logic lọc ở detect_faces có sai sót sau này, không phải để lọc gì
+        thêm ở đây nữa."""
+        # roi_polygons truyền vào ĐÂY để chính insightface ƯU TIÊN chọn mặt
+        # trong ROI trước khi cắt còn max_num (xem AIModelManager.detect_faces)
+        # - không phải lọc SAU khi đã chọn (lúc đó có thể mặt trong ROI đã bị
+        # loại mất từ vòng chọn top max_num rồi, không cách nào lấy lại).
+        faces = AIModelManager.instance().detect_faces(
+            frame, max_num=_FACE_MAX_PER_FRAME, roi_polygons=self._roi_polygons
+        )
         good_faces = [f for f in faces if f.det_score >= _FACE_DET_SCORE_THRESHOLD]
 
-        if not good_faces:
+        # QUAN TRỌNG: LUÔN gọi tracker.update() dù good_faces RỖNG (bbox
+        # rỗng) - KHÔNG tự ý coi "1 lượt AI không có mặt đạt ngưỡng" là
+        # "track biến mất" rồi prune ngay lập tức (bug đã gặp thật: người
+        # lạ/quen chỉ cúi xuống/che khuất mặt 1 CHÚT khiến det_score rớt
+        # dưới _FACE_DET_SCORE_THRESHOLD đúng 1-2 lượt AI là bị xoá SẠCH
+        # _face_track_seen_well/_best_sim/_identity/_notified ngay, hiện lại
+        # "Unknown" dù DeepSort đáng lẽ vẫn "nhớ" track đó thêm nhiều frame
+        # nữa - bộ nhớ tạm theo embedding chỉ bắc cầu được khi track ĐÃ THỰC
+        # SỰ chết, không cứu được nếu bị prune oan ngay từ 1 frame mờ tạm
+        # thời). DeepSort.update() với detection rỗng vẫn AN TOÀN (tự bỏ
+        # qua bước trích đặc trưng - core/deep_sort_pytorch/deep_sort/deep_sort.py::_get_features)
+        # - vẫn chạy Kalman predict + tự đếm time_since_update cho từng
+        # track, dùng ĐÚNG max_age nội bộ của chính nó để quyết định khi
+        # nào 1 track thực sự biến mất (không còn trong outputs).
+        if good_faces:
+            bbox_xywh = torch.Tensor([self._xyxy_to_xywh(f.bbox) for f in good_faces])
+            confidences = torch.Tensor([float(f.det_score) for f in good_faces])
+            classes = [0] * len(good_faces)  # 1 "lớp" duy nhất (mặt) - DeepSort cần tham số này nhưng không dùng để phân biệt gì thêm ở đây
+        else:
+            bbox_xywh = torch.empty(0, 4)
+            confidences = torch.empty(0)
+            classes = []
+        outputs = self._get_face_tracker().update(bbox_xywh, confidences, classes, frame)
+
+        if good_faces:
+            self._bind_face_identities(outputs, good_faces, frame.shape[1])
+
+        if len(outputs) == 0:
             self._prune_face_tracks(active_ids=set())
             self._last_face_boxes = []
             return [], False
-
-        bbox_xywh = torch.Tensor([self._xyxy_to_xywh(f.bbox) for f in good_faces])
-        confidences = torch.Tensor([float(f.det_score) for f in good_faces])
-        classes = [0] * len(good_faces)  # 1 "lớp" duy nhất (mặt) - DeepSort cần tham số này nhưng không dùng để phân biệt gì thêm ở đây
-        outputs = self._get_face_tracker().update(bbox_xywh, confidences, classes, frame)
-
-        self._bind_face_identities(outputs, good_faces, frame.shape[1])
 
         settings = AISettings.instance()
         known_faces: list[str] = []
@@ -791,7 +973,13 @@ class CameraPipeline(QThread):
         ảnh đang bám theo, gần như chắc chắn vẫn là CÙNG 1 người trong suốt
         vòng đời track đó, nên 1 lượt match trượt do góc mặt xấu tạm thời
         KHÔNG được hạ cấp 1 track đã từng khớp ra người quen xuống lại
-        "chưa rõ")."""
+        "chưa rõ").
+
+        Track VỪA xuất hiện lần đầu (mới tạo, HOẶC track cũ vừa chết vì mất
+        dấu quá lâu - DeepSort cấp track_id KHÁC cho ĐÚNG người đó khi họ
+        quay lại) - thử khôi phục trạng thái từ "bộ nhớ tạm"
+        (_recall_face_memory, theo embedding KHÔNG phải track_id) trước khi
+        coi là người hoàn toàn mới - xem hằng số _FACE_MEMORY_*."""
         if not good_faces or len(outputs) == 0:
             return
         max_dist = _IDENTITY_MATCH_MAX_DIST_RATIO * frame_width
@@ -810,6 +998,19 @@ class CameraPipeline(QThread):
             if best_track_id is None:
                 continue
 
+            if best_track_id not in self._face_track_identity:
+                remembered = self._recall_face_memory(face.normed_embedding)
+                if remembered is not None:
+                    self._face_track_identity[best_track_id] = remembered.name
+                    # "đã thông báo" áp dụng cho CẢ người quen VÀ người lạ
+                    # (chế độ "once" - xem _should_notify_face), khôi phục
+                    # bất kể remembered.name có hay không.
+                    if remembered.notified:
+                        self._face_track_notified.add(best_track_id)
+                    if remembered.name is None:
+                        self._face_track_seen_well.add(best_track_id)
+                        self._face_track_best_sim[best_track_id] = remembered.best_sim
+
             if (
                 face.det_score >= settings.stranger_confirm_min_score
                 and estimate_face_frontal_ratio(face.kps) >= settings.stranger_min_frontal_ratio
@@ -818,17 +1019,71 @@ class CameraPipeline(QThread):
 
             name, sim = store.match(face.normed_embedding, threshold=settings.face_similarity_threshold)
             matched_name = None if name == "Stranger" else name
-            if matched_name is None:
+            # Track ĐÃ có danh tính biết trước đó (dù từ 1 match trước hay
+            # vừa khôi phục từ bộ nhớ tạm ở trên) - 1 lượt match trượt do
+            # góc xấu NGAY LÚC VỪA khôi phục không được phép ghi đè lại
+            # best_sim/xoá danh tính đó (sticky, giống hệt lý do docstring
+            # ở trên, chỉ mở rộng thêm cho trường hợp vừa khôi phục).
+            already_known = self._face_track_identity.get(best_track_id) is not None
+            if matched_name is None and not already_known:
                 self._face_track_best_sim[best_track_id] = max(
                     sim, self._face_track_best_sim.get(best_track_id, 0.0)
                 )
-            else:
+            elif matched_name is not None:
                 self._face_track_best_sim.pop(best_track_id, None)
             # Chỉ ghi đè khi CÓ khớp, hoặc track này CHƯA từng xuất hiện -
             # track đã có trong dict (dù đang là None) mà lượt này lại
             # trượt (matched_name is None) thì GIỮ NGUYÊN giá trị cũ (sticky).
             if matched_name is not None or best_track_id not in self._face_track_identity:
                 self._face_track_identity[best_track_id] = matched_name
+
+            self._face_track_last_embedding[best_track_id] = face.normed_embedding
+            self._remember_face(
+                face.normed_embedding,
+                name=self._face_track_identity.get(best_track_id),
+                best_sim=self._face_track_best_sim.get(best_track_id, 0.0),
+                notified=best_track_id in self._face_track_notified,
+            )
+
+    def _recall_face_memory(self, embedding: np.ndarray) -> "_RememberedFace | None":
+        """Tìm trong self._face_memory 1 entry có embedding khớp ĐỦ CHẶT
+        (AISettings.face_memory_match_threshold, cosine similarity - cả 2
+        vector đã normed nên chỉ cần dot product) VÀ chưa quá hạn
+        (_FACE_MEMORY_TTL_SEC) - trả về entry tốt nhất, None nếu không có
+        entry nào đạt. Không tự xoá entry hết hạn ở đây (chỉ bỏ qua) - việc
+        dọn dẹp chủ động do _prune_face_tracks lo, tránh 2 nơi cùng sửa
+        list này lúc đang lặp."""
+        now = time.monotonic()
+        threshold = AISettings.instance().face_memory_match_threshold
+        best_entry, best_sim = None, threshold
+        for entry in self._face_memory:
+            if now - entry.last_seen > _FACE_MEMORY_TTL_SEC:
+                continue
+            sim = float(np.dot(embedding, entry.embedding))
+            if sim > best_sim:
+                best_sim, best_entry = sim, entry
+        return best_entry
+
+    def _remember_face(self, embedding: np.ndarray, name: str | None, best_sim: float, notified: bool) -> None:
+        """Ghi/cập nhật 1 khuôn mặt vào self._face_memory - tìm entry KHỚP
+        gần nhất trước (cùng ngưỡng với _recall_face_memory) để CẬP NHẬT ĐÈ
+        (không tạo entry mới mỗi frame cho ĐÚNG 1 người đang đứng yên/di
+        chuyển liên tục - danh sách chỉ tăng khi có mặt THỰC SỰ mới), không
+        có thì thêm entry mới (giới hạn _FACE_MEMORY_MAX_ENTRIES, bỏ entry
+        cũ nhất khi đầy)."""
+        now = time.monotonic()
+        threshold = AISettings.instance().face_memory_match_threshold
+        for entry in self._face_memory:
+            if float(np.dot(embedding, entry.embedding)) > threshold:
+                entry.embedding = embedding
+                entry.last_seen = now
+                entry.name = name
+                entry.best_sim = best_sim
+                entry.notified = notified
+                return
+        self._face_memory.append(_RememberedFace(embedding, now, name, best_sim, notified))
+        if len(self._face_memory) > _FACE_MEMORY_MAX_ENTRIES:
+            self._face_memory.pop(0)
 
     def _prune_face_tracks(self, active_ids: set[int]) -> None:
         for track_id in list(self._face_track_identity):
@@ -844,6 +1099,16 @@ class CameraPipeline(QThread):
         # trùng số track_id cũ (DeepSort tái sử dụng ID sau khi track cũ
         # chết hẳn).
         self._face_track_notified &= active_ids
+        for track_id in list(self._face_track_last_embedding):
+            if track_id not in active_ids:
+                del self._face_track_last_embedding[track_id]
+        # Dọn entry hết hạn khỏi bộ nhớ tạm (_FACE_MEMORY_TTL_SEC) - lười
+        # (chỉ chạy mỗi khi có track biến mất, không phải mỗi frame), tránh
+        # danh sách tồn đọng vô hạn entry đã hết hạn nếu camera chạy rất lâu
+        # mà track ít biến mất (_recall_face_memory/_remember_face chỉ BỎ
+        # QUA entry hết hạn khi tra, không tự xoá).
+        now = time.monotonic()
+        self._face_memory = [e for e in self._face_memory if now - e.last_seen <= _FACE_MEMORY_TTL_SEC]
 
     def _check_fall(self, frame, result) -> tuple[bool, tuple[int, int, int, int] | None]:
         """Fall detection port từ Fall_detection.py: với mỗi người có đủ 6
@@ -990,12 +1255,90 @@ class CameraPipeline(QThread):
                 count += 1
         return count
 
+    def _update_crowd_heatmap(self, outputs, frame_shape) -> None:
+        """Cập nhật lưới nhiệt đám đông CỤC BỘ (self._heatmap_grid, xem hằng
+        số _HEATMAP_*) - bổ sung cho _count_occupancy (đếm TỔNG số người):
+        đo được người có đang TỤ TẬP dồn vào 1 vùng nhỏ hay không, dù tổng số
+        người trong ROI chưa vượt occupancy_threshold.
+
+        Cơ chế (gọi mỗi lượt AI khi enable_occupancy + crowd_heatmap_threshold
+        > 0, xem _run_ai):
+          1. SUY GIẢM (decay) toàn bộ lưới trước - nhân theo hệ số
+             0.5 ** (dt / _HEATMAP_HALF_LIFE_SEC), dt = thời gian THẬT trôi
+             qua kể từ lượt cập nhật trước (không phải số lượt AI, vì
+             ai_fps_limit đổi được từng camera) -> nhiệt "nguội" đúng theo
+             thời gian thật kể cả khi outputs rỗng (không có ai).
+          2. CỘNG nhiệt cho mỗi người đang active - lấy tâm bbox ĐẦU (cùng
+             điểm _count_occupancy dùng, khớp đúng ROI vẽ theo vị trí đầu
+             người đứng), "vẩy" theo kernel 3x3 quanh ô chứa điểm đó
+             (_HEATMAP_KERNEL, tổng trọng số 1.0 -> 1 người = đúng 1 đơn vị
+             nhiệt/lượt, không phụ thuộc số người khác đang có).
+          3. CHẶN TRẦN mỗi ô ở _HEATMAP_CELL_MAX - tránh nhiệt tích luỹ vô
+             hạn ở chỗ luôn đông liên tục hàng giờ.
+
+        Có ROI -> CHỈ cộng nhiệt cho người có tâm đầu nằm TRONG ROI (giống
+        _count_occupancy) - người ngoài ROI không góp phần vào lưới. Không có
+        ROI -> xét toàn khung hình.
+
+        Ô "nóng nhất" hiện tại (self._heatmap_grid.max()) là căn cứ cảnh báo
+        crowd_alert ở _run_ai - so với crowd_heatmap_threshold, KHÁC hẳn
+        occupancy_alert (so TỔNG num_people)."""
+        height, width = frame_shape[:2]
+        if self._heatmap_grid is None:
+            self._heatmap_grid = np.zeros((_HEATMAP_GRID_ROWS, _HEATMAP_GRID_COLS), dtype=np.float32)
+            self._heatmap_last_ts = time.monotonic()
+
+        now = time.monotonic()
+        dt = max(0.0, now - self._heatmap_last_ts)
+        self._heatmap_last_ts = now
+        self._heatmap_grid *= 0.5 ** (dt / _HEATMAP_HALF_LIFE_SEC)
+
+        cell_w = width / _HEATMAP_GRID_COLS
+        cell_h = height / _HEATMAP_GRID_ROWS
+        for x1, y1, x2, y2, _track_id, _cls in outputs:
+            head_center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+            if self._roi_polygons and not any(
+                cv2.pointPolygonTest(polygon, head_center, False) >= 0 for polygon in self._roi_polygons
+            ):
+                continue
+
+            col = min(max(int(head_center[0] // cell_w), 0), _HEATMAP_GRID_COLS - 1)
+            row = min(max(int(head_center[1] // cell_h), 0), _HEATMAP_GRID_ROWS - 1)
+            for ky in range(-1, 2):
+                ry = row + ky
+                if ry < 0 or ry >= _HEATMAP_GRID_ROWS:
+                    continue
+                for kx in range(-1, 2):
+                    rx = col + kx
+                    if rx < 0 or rx >= _HEATMAP_GRID_COLS:
+                        continue
+                    self._heatmap_grid[ry, rx] += _HEATMAP_KERNEL[ky + 1, kx + 1]
+
+        np.clip(self._heatmap_grid, 0.0, _HEATMAP_CELL_MAX, out=self._heatmap_grid)
+
     def _draw_overlay(self, frame) -> None:
         """Vẽ overlay lên frame TRƯỚC khi emit - theo cấu hình tab Overlay
         (show_bbox/show_label/show_roi/show_tracking_id) + cảnh báo PPE/Fire/
         Fall gần nhất. Dùng self._last_tracks (không phải kết quả AI-tick vừa
         rồi) vì AI bị throttle theo ai_fps_limit trong khi frame emit ở mọi
         vòng lặp capture - giữa 2 lần AI chạy, vẫn vẽ theo vị trí track cũ."""
+        # Heatmap vẽ TRƯỚC (dưới cùng) - ROI/bbox/label vẽ đè lên sau vẫn rõ
+        # nét, không bị lớp tint heatmap làm mờ. Chỉ vẽ khi tính năng đang
+        # BẬT (threshold > 0), đã có ít nhất 1 lượt cập nhật lưới
+        # (self._heatmap_grid khác None - camera vừa bật tính năng nhưng
+        # chưa qua lượt AI nào thì chưa có gì để vẽ), VÀ lưới có nhiệt ĐÁNG
+        # KỂ (_HEATMAP_DRAW_EPSILON) - hàm này chạy trên MỌI frame emit (theo
+        # display FPS, KHÔNG throttle theo ai_fps_limit như phần tính lưới -
+        # xem docstring _draw_overlay), nên bỏ qua sớm lúc không ai tụ tập
+        # (đa số thời gian thực tế) tránh phí CPU vẽ 1 lớp gần như trong
+        # suốt hoàn toàn, không ai nhìn ra khác biệt.
+        if (
+            self._crowd_heatmap_threshold > 0
+            and self._heatmap_grid is not None
+            and float(self._heatmap_grid.max()) >= _HEATMAP_DRAW_EPSILON * self._crowd_heatmap_threshold
+        ):
+            self._blend_heatmap(frame)
+
         if self._show_roi:
             # Xanh lá (BGR) - khớp màu viền ROI dùng trong ROI Editor
             # (roi_editor_dialog.py: _ROI_OUTLINE = QColor(0, 200, 120)).
@@ -1061,6 +1404,62 @@ class CameraPipeline(QThread):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA,
             )
 
+    def _blend_heatmap(self, frame) -> None:
+        """Vẽ lớp phủ heatmap lên frame (tại chỗ, giống mọi hàm vẽ overlay
+        khác) - phóng to lưới thô self._heatmap_grid (_HEATMAP_GRID_ROWS x
+        _HEATMAP_GRID_COLS) lên đúng kích thước frame bằng nội suy tuyến
+        tính, tô màu kiểu "nhiệt" (JET: xanh dương nhạt -> đỏ đậm), rồi trộn
+        theo alpha RIÊNG TỪNG PIXEL (chỗ không có nhiệt phải TRONG SUỐT hoàn
+        toàn, không tô màu gì - không dùng cv2.addWeighted vì hàm đó chỉ hỗ
+        trợ 1 alpha đồng nhất cho cả ảnh).
+
+        HIỆU NĂNG (đã đo thật, xem lịch sử sửa hàm này - bản đầu tiên dùng
+        frame.astype(np.float32) rồi nhân/cộng broadcast bằng numpy thuần
+        chậm KHỦNG KHIẾP, ~70-80ms/frame ở 1080p, đủ để giật lag rõ rệt vì
+        hàm này chạy trên MỌI frame emit theo display FPS, KHÔNG throttle
+        theo ai_fps_limit như phần tính lưới _update_crowd_heatmap). 2 tối
+        ưu ở đây (đã benchmark, ~7-10 lần nhanh hơn, còn ~6-12ms/frame ở
+        1080p):
+          1. Trộn bằng cv2.multiply/cv2.add (uint8 + scale, KHÔNG chuyển
+             sang float32) thay vì numpy broadcast - OpenCV có SIMD/vector
+             hoá native cho các phép toán mảng uint8 này, numpy broadcasting
+             với mảng lớn (đặc biệt shape (h,w,1) broadcast lên (h,w,3)) lại
+             CHẬM hơn hẳn dù về lý thuyết cùng khối lượng phép toán.
+          2. Có ROI -> chỉ trộn trong đúng BOUNDING BOX của ROI (nhiệt luôn
+             = 0 ngoài ROI, trộn cả phần đó chỉ tốn công vô ích) - vẫn phải
+             resize lưới ra ĐỦ KÍCH THƯỚC FRAME GỐC trước rồi mới cắt vùng
+             (không resize thẳng xuống kích thước bounding box) để giữ ĐÚNG
+             ánh xạ toạ độ ô lưới <-> điểm ảnh (self._update_crowd_heatmap
+             tính cell_w/cell_h theo kích thước FRAME, không phải theo ROI).
+
+        Chuẩn hoá theo crowd_heatmap_threshold (không phải theo max thực tế
+        của lưới) - ý nghĩa trực quan: đỏ đậm/mờ đục nhất (alpha tối đa) ĐÚNG
+        LÚC ô đó chạm ngưỡng cảnh báo, giúp người xem đoán được "còn cách báo
+        động bao xa" thay vì chỉ thấy màu tương đối giữa các ô với nhau."""
+        height, width = frame.shape[:2]
+        heat_norm = np.clip(self._heatmap_grid / self._crowd_heatmap_threshold, 0.0, 1.0)
+        heat_resized = cv2.resize(heat_norm, (width, height), interpolation=cv2.INTER_LINEAR)
+
+        if self._roi_polygons:
+            bx, by, bw, bh = cv2.boundingRect(np.concatenate(self._roi_polygons, axis=0))
+            x0, y0 = max(0, bx), max(0, by)
+            x1, y1 = min(width, bx + bw), min(height, by + bh)
+            if x1 <= x0 or y1 <= y0:
+                return
+        else:
+            x0, y0, x1, y1 = 0, 0, width, height
+
+        heat_crop = heat_resized[y0:y1, x0:x1]
+        colored_crop = cv2.applyColorMap((heat_crop * 255).astype(np.uint8), cv2.COLORMAP_JET)
+        # tối đa 50% mờ đục - vẫn thấy rõ người/vật bên dưới lớp phủ.
+        alpha_3ch = cv2.cvtColor((heat_crop * 0.5 * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        inv_alpha_3ch = cv2.bitwise_not(alpha_3ch)
+
+        region = frame[y0:y1, x0:x1]
+        term_frame = cv2.multiply(region, inv_alpha_3ch, scale=1.0 / 255.0)
+        term_color = cv2.multiply(colored_crop, alpha_3ch, scale=1.0 / 255.0)
+        frame[y0:y1, x0:x1] = cv2.add(term_frame, term_color)
+
     def _emit_ai_result(
         self,
         num_people: int,
@@ -1069,6 +1468,7 @@ class CameraPipeline(QThread):
         fall_alert: bool = False,
         fall_bbox: tuple[int, int, int, int] | None = None,
         occupancy_alert: bool = False,
+        crowd_alert: bool = False,
         known_faces: list[str] | None = None,
         stranger_alert: bool = False,
         stranger_track_ids: list[int] | None = None,
@@ -1091,6 +1491,7 @@ class CameraPipeline(QThread):
                 "fire_alert": fire_alert,
                 "fall_alert": fall_alert,
                 "occupancy_alert": occupancy_alert,
+                "crowd_alert": crowd_alert,
                 "known_faces": known_faces or [],
                 "stranger_alert": stranger_alert,
                 # track_id của TỪNG người lạ đã xác nhận trong lượt này - xem

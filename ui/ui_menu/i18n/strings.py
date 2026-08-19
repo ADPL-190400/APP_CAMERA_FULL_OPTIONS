@@ -540,6 +540,30 @@ STRINGS: dict[str, dict[str, str]] = {
     "👥 Overcrowding": {"vi": "👥 Quá đông người", "en": "👥 Overcrowding", "ja": "👥 過密"},
     "Overcrowding": {"vi": "Quá đông người", "en": "Overcrowding", "ja": "過密"},
     "Recognized": {"vi": "Nhận diện", "en": "Recognized", "ja": "認識"},
+    "Alert on localized crowd density": {
+        "vi": "Cảnh báo đám đông cục bộ",
+        "en": "Alert on localized crowd density",
+        "ja": "局所的な混雑を警告",
+    },
+    "0 = off. Unlike \"Alert if occupancy exceeds\" (total headcount), this tracks LOCALIZED density - "
+    "people clustering in the same small area of the ROI, even if the total count is still under the "
+    "occupancy limit. Builds up the longer people linger in one spot, cools down a few seconds after "
+    "they leave. When set above 0, a heatmap overlay is also shown on the live view.": {
+        "vi": "0 = tắt. Khác với \"Cảnh báo nếu số người vượt quá\" (đếm tổng), cái này theo dõi mật độ "
+        "CỤC BỘ - người tụ tập cùng 1 vùng nhỏ trong ROI, dù tổng số người vẫn dưới ngưỡng occupancy. "
+        "Tăng dần khi người đứng lâu 1 chỗ, giảm dần vài giây sau khi họ rời đi. Khi đặt lớn hơn 0, còn "
+        "hiện thêm lớp phủ heatmap trên Live View.",
+        "en": "0 = off. Unlike \"Alert if occupancy exceeds\" (total headcount), this tracks LOCALIZED "
+        "density - people clustering in the same small area of the ROI, even if the total count is still "
+        "under the occupancy limit. Builds up the longer people linger in one spot, cools down a few "
+        "seconds after they leave. When set above 0, a heatmap overlay is also shown on the live view.",
+        "ja": "0 = オフ。「在室人数がこれを超えたら警告」（総人数）とは異なり、これはROI内の同じ小さな範囲"
+        "に人が集まる「局所的な」密度を追跡します（総人数が在室人数の上限を下回っていても対象）。1箇所に"
+        "長くとどまるほど蓄積し、離れてから数秒で冷めます。0より大きい値を設定すると、ライブビューにヒー"
+        "トマップのオーバーレイも表示されます。",
+    },
+    "Crowd Density": {"vi": "Mật độ đông cục bộ", "en": "Crowd Density", "ja": "局所的な混雑"},
+    "🌡️ Crowd Density": {"vi": "🌡️ Mật độ đông cục bộ", "en": "🌡️ Crowd Density", "ja": "🌡️ 局所的な混雑"},
     "PPE monitoring  (requires drawing an ROI)": {
         "vi": "Giám sát đồ bảo hộ PPE  (cần vẽ ROI)",
         "en": "PPE monitoring  (requires drawing an ROI)",
@@ -552,10 +576,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Face recognition - alert on strangers / recognize known people",
         "ja": "顔認識 - 不審者を警告 / 既知の人物を認識",
     },
-    "Repeat Stranger alert": {
-        "vi": "Lặp lại cảnh báo Người lạ",
-        "en": "Repeat Stranger alert",
-        "ja": "不審者アラートの再通知",
+    "Repeat notifications": {
+        "vi": "Lặp lại thông báo",
+        "en": "Repeat notifications",
+        "ja": "通知の再送",
     },
     "Notify once per visit": {
         "vi": "Chỉ báo 1 lần mỗi lượt xuất hiện",
@@ -567,21 +591,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Repeat after grace period",
         "ja": "猶予期間後に再通知",
     },
-    "How to handle the SAME lingering stranger being seen again after briefly turning away/being partly "
-    "hidden. \"Notify once\" only alerts the first time until they leave the frame entirely. \"Repeat after "
-    "grace period\" alerts again if they go quiet for a while and get reconfirmed - same behavior as PPE/"
-    "Fire/Fall/Overcrowding.": {
-        "vi": "Cách xử lý khi vẫn ĐÚNG 1 người lạ đó bị nhìn thấy lại sau khi vừa quay đầu/bị che khuất một "
-        "phần. \"Chỉ báo 1 lần\" chỉ cảnh báo lần đầu tiên, tới khi họ ra khỏi khung hình hẳn. \"Báo lại sau "
-        "thời gian chờ\" cảnh báo lại nếu họ \"im lặng\" một lúc rồi được xác nhận lại - giống hành vi PPE/"
-        "Fire/Fall/Overcrowding.",
-        "en": "How to handle the SAME lingering stranger being seen again after briefly turning away/being "
-        "partly hidden. \"Notify once\" only alerts the first time until they leave the frame entirely. "
-        "\"Repeat after grace period\" alerts again if they go quiet for a while and get reconfirmed - same "
-        "behavior as PPE/Fire/Fall/Overcrowding.",
-        "ja": "同じ滞留中の不審者が、少し目を離した/一部隠れた後に再び見られた場合の扱い方。「1回だけ通知」は"
-        "画面から完全に消えるまで最初の1回だけ警告します。「猶予期間後に再通知」は、しばらく静かになって再確"
-        "認された場合に再度警告します - PPE/Fire/Fall/Overcrowdingと同じ挙動です。",
+    "How to handle the SAME person (known or stranger) being seen again after briefly turning away/being "
+    "partly hidden. \"Notify once\" only alerts/logs the first time until they leave the frame entirely. "
+    "\"Repeat after grace period\" alerts/logs again if they go quiet for a while and get reconfirmed - "
+    "same behavior as PPE/Fire/Fall/Overcrowding.": {
+        "vi": "Cách xử lý khi vẫn ĐÚNG 1 người (quen hoặc lạ) bị nhìn thấy lại sau khi vừa quay đầu/bị che "
+        "khuất một phần. \"Chỉ báo 1 lần\" chỉ cảnh báo/ghi log lần đầu tiên, tới khi họ ra khỏi khung hình "
+        "hẳn. \"Báo lại sau thời gian chờ\" cảnh báo/ghi log lại nếu họ \"im lặng\" một lúc rồi được xác "
+        "nhận lại - giống hành vi PPE/Fire/Fall/Overcrowding.",
+        "en": "How to handle the SAME person (known or stranger) being seen again after briefly turning "
+        "away/being partly hidden. \"Notify once\" only alerts/logs the first time until they leave the "
+        "frame entirely. \"Repeat after grace period\" alerts/logs again if they go quiet for a while and "
+        "get reconfirmed - same behavior as PPE/Fire/Fall/Overcrowding.",
+        "ja": "同じ人物（既知または不審者）が、少し目を離した/一部隠れた後に再び見られた場合の扱い方。「1回"
+        "だけ通知」は画面から完全に消えるまで最初の1回だけ警告/記録します。「猶予期間後に再通知」は、しばら"
+        "く静かになって再確認された場合に再度警告/記録します - PPE/Fire/Fall/Overcrowdingと同じ挙動です。",
     },
     "Face match sensitivity": {
         "vi": "Độ nhạy nhận diện khuôn mặt",
@@ -600,6 +624,30 @@ STRINGS: dict[str, dict[str, str]] = {
         "ja": "検出した顔が既知の人物とどれだけ一致すれば認識するか。高いほど厳格（誤認識は減るが、角度や照"
         "明が悪いと既知の人物を見逃しやすい）。低いほど緩やか（既知の人物を認識しやすいが、似た顔の2人を混"
         "同するリスクが上がる）。",
+    },
+    "Face memory match strictness": {
+        "vi": "Độ chặt của bộ nhớ khuôn mặt",
+        "en": "Face memory match strictness",
+        "ja": "顔メモリの一致厳密度",
+    },
+    "How closely 2 sightings must match to be treated as the SAME person when tracking briefly loses "
+    "them (they turned away/looked down for a moment). Higher = stricter (safer, but may fail to "
+    "reconnect after a bad angle - shows up as a fresh Stranger notification or a moment of \"Unknown\" "
+    "for a known person). Lower = looser (reconnects more easily, but raises the risk of confusing 2 "
+    "different people who look alike).": {
+        "vi": "2 lần nhìn thấy phải giống nhau tới mức nào mới được coi là ĐÚNG 1 người khi việc theo dõi bị "
+        "mất dấu thoáng qua (họ quay đầu/cúi xuống 1 lúc). Cao hơn = chặt hơn (an toàn hơn, nhưng dễ không "
+        "bắc cầu được sau 1 góc xấu - hiện ra như 1 thông báo Người lạ mới hoặc 1 lúc \"Unknown\" cho người "
+        "quen). Thấp hơn = lỏng hơn (bắc cầu dễ hơn, nhưng dễ nhầm 2 người khác nhau trông giống nhau).",
+        "en": "How closely 2 sightings must match to be treated as the SAME person when tracking briefly "
+        "loses them (they turned away/looked down for a moment). Higher = stricter (safer, but may fail "
+        "to reconnect after a bad angle - shows up as a fresh Stranger notification or a moment of "
+        "\"Unknown\" for a known person). Lower = looser (reconnects more easily, but raises the risk of "
+        "confusing 2 different people who look alike).",
+        "ja": "追跡が一時的に途切れた（少し目を離した/下を向いた）後、2回の目撃を同一人物として扱うにはどれ"
+        "だけ一致する必要があるか。高いほど厳格（安全だが、悪い角度の後に再接続できず、新しい不審者通知や既"
+        "知の人物の一時的な「不明」として表示される場合がある）。低いほど緩やか（再接続しやすいが、似た外見"
+        "の別人を混同するリスクが上がる）。",
     },
     "🔄  Refresh Known Faces": {"vi": "🔄  Làm mới danh sách khuôn mặt", "en": "🔄  Refresh Known Faces", "ja": "🔄  既知の顔を更新"},
     "Known faces: not loaded": {"vi": "Khuôn mặt đã biết: chưa tải", "en": "Known faces: not loaded", "ja": "既知の顔: 未読込"},

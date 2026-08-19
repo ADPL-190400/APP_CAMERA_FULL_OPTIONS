@@ -22,10 +22,12 @@ import threading
 import time
 from contextlib import contextmanager
 
+import cv2
 import numpy as np
 import onnx
 import torch
 from insightface.app import FaceAnalysis
+from insightface.app.common import Face
 from onnx2torch import convert as onnx2torch_convert
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
@@ -371,7 +373,7 @@ class AIModelManager:
                     self._face_model = model
         return self._face_model
 
-    def detect_faces(self, frame, max_num: int = 0) -> list:
+    def detect_faces(self, frame, max_num: int = 0, roi_polygons=None) -> list:
         """Chạy insightface (model dùng chung) trên 1 frame BGR. Trả về list
         các Face object (bbox, det_score, normed_embedding) - CameraPipeline
         so từng face với KnownFacesStore để nhận diện người quen/người lạ.
@@ -380,9 +382,58 @@ class AIModelManager:
         recognition per-face đều tốn thêm khi số mặt tăng (xem module
         docstring), nên khi 1 frame có quá nhiều mặt (đám đông), giới hạn
         này tránh việc cả frame bị kéo chậm vì phải nhận diện HẾT từng mặt.
-        insightface tự chọn max_num mặt LỚN NHẤT/gần tâm khung hình nhất để
-        giữ lại (ưu tiên người gần camera/đang nhìn thẳng, hợp lý cho use
-        case điểm danh/an ninh) - xem SCRFD.detect(), tham số metric='default'."""
+
+        roi_polygons: rỗng/None -> hành vi GỐC không đổi (insightface tự
+        chọn max_num mặt LỚN NHẤT/gần tâm khung hình nhất để giữ lại - xem
+        SCRFD.detect(), tham số metric='default') - xét TOÀN khung hình,
+        KHÔNG có khái niệm ROI.
+
+        Có roi_polygons -> CHỈ xét mặt có TÂM bbox nằm TRONG vùng ROI (mặt
+        ngoài ROI bị loại NGAY TỪ ĐẦU, không cạnh tranh "suất" max_num với
+        mặt trong ROI, kể cả khi ROI chỉ có vài người nhưng camera còn thấy
+        cả đám đông ngoài vùng đó) - trong số các mặt ĐÃ Ở TRONG ROI, ưu
+        tiên det_score cao hơn nếu vẫn nhiều hơn max_num. Vẫn CHỈ chạy bước
+        nhận diện (ArcFace, bước tốn nhất) cho ĐÚNG max_num mặt đã chọn -
+        bước phát hiện (SCRFD) không giới hạn số mặt trả về TỪ ĐẦU (chi phí
+        gần như không đổi theo số mặt - 1 lượt suy luận NN cố định trên
+        toàn ảnh, phần lọc/sắp xếp sau đó là numpy thuần, rẻ) nên không tốn
+        thêm chi phí đáng kể để "nhìn thấy" cả các mặt ngoài ROI trước khi
+        loại bỏ chúng."""
         model = self._get_face_model()
         with self._face_call_lock, self._measure("face"):
-            return model.get(frame, max_num=max_num)
+            if not roi_polygons:
+                return model.get(frame, max_num=max_num)
+            return self._detect_faces_in_roi(model, frame, max_num, roi_polygons)
+
+    @staticmethod
+    def _detect_faces_in_roi(model: FaceAnalysis, frame, max_num: int, roi_polygons) -> list:
+        """PORT lại phần lõi của FaceAnalysis.get() (insightface) - CHỦ Ý
+        KHÔNG dùng SCRFD.detect(..., max_num=...) như bản gốc (chọn theo
+        kích thước/độ gần tâm khung hình, không biết gì về ROI) - tự LOẠI
+        BỎ mặt ngoài ROI trước, rồi mới sắp theo det_score + cắt còn đúng
+        max_num trong số mặt CÒN LẠI (đã chắc chắn trong ROI), sau đó mới
+        chạy nhận diện (ArcFace) cho từng mặt đã chọn - giống hệt cách
+        model.get() làm, chỉ khác bước chọn lọc ở giữa."""
+        bboxes, kpss = model.det_model.detect(frame, max_num=0, metric="default")
+        if bboxes.shape[0] == 0:
+            return []
+
+        def in_roi(index: int) -> bool:
+            x1, y1, x2, y2 = bboxes[index, 0:4]
+            center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+            return any(cv2.pointPolygonTest(polygon, center, False) >= 0 for polygon in roi_polygons)
+
+        candidates = [i for i in range(bboxes.shape[0]) if in_roi(i)]
+        candidates.sort(key=lambda i: -bboxes[i, 4])
+        if max_num > 0:
+            candidates = candidates[:max_num]
+
+        faces = []
+        for i in candidates:
+            face = Face(bbox=bboxes[i, 0:4], kps=(kpss[i] if kpss is not None else None), det_score=bboxes[i, 4])
+            for taskname, sub_model in model.models.items():
+                if taskname == "detection":
+                    continue
+                sub_model.get(frame, face)
+            faces.append(face)
+        return faces

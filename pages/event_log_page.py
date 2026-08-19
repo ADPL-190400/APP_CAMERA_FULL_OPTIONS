@@ -31,7 +31,7 @@ COL_CAMERA = 2
 COL_KIND = 3
 COL_DETAIL = 4
 
-_THUMB_SIZE = QSize(96, 54)
+_THUMB_SIZE = QSize(158, 89)  # +~20% nữa so với 132x74 (gốc 96x54), vẫn giữ đúng tỉ lệ 16:9
 
 # Chiều rộng cột (px) - Fixed cho COL_IMAGE (đúng khít _THUMB_SIZE, không
 # cần người dùng tự kéo), Interactive cho các cột nội dung ngắn/vừa (vẫn
@@ -56,7 +56,7 @@ _TIME_FILTER_VALUES: list[timedelta | None] = [
 
 _KIND_FILTER_KEYS = [
     "All types", "PPE Violation", "Fire / Smoke", "Fall", "Stranger", "Check-in", "Check-out", "Overcrowding",
-    "Recognized",
+    "Recognized", "Crowd Density",
 ]
 _KIND_FILTER_VALUES: list[EventKind | None] = [
     None,
@@ -68,6 +68,7 @@ _KIND_FILTER_VALUES: list[EventKind | None] = [
     EventKind.FACE_CHECKOUT,
     EventKind.OCCUPANCY_ALERT,
     EventKind.FACE_RECOGNIZED,
+    EventKind.CROWD_ALERT,
 ]
 
 _PAGE_SIZE = 50

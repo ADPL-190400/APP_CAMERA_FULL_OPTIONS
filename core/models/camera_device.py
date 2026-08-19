@@ -44,22 +44,25 @@ class AIConfig:
     enable_fire: bool = False
     enable_fall: bool = False
     enable_face_recognition: bool = False
-    # Cách chống spam thông báo Người lạ cho camera này (mỗi track/lượt
-    # hiện diện - xem CameraPipeline._capture_face_events). Giá trị lưu
-    # ĐÚNG chuỗi tiếng Anh hiển thị ở combobox (canonical - cùng quy ước với
-    # vendor/inference_quality/recording_mode... trong file này, xem
+    # Cách chống spam thông báo/Event Log cho camera này (mỗi track/lượt
+    # hiện diện - xem CameraPipeline._capture_face_events/_should_notify_face)
+    # - ÁP DỤNG CHO CẢ người quen (FACE_RECOGNIZED) LẪN người lạ
+    # (STRANGER_ALERT), tên field còn giữ "stranger" vì lịch sử (được thêm
+    # trước, mở rộng sang người quen sau). Giá trị lưu ĐÚNG chuỗi tiếng Anh
+    # hiển thị ở combobox (canonical - cùng quy ước với vendor/
+    # inference_quality/recording_mode... trong file này, xem
     # pages/camera_config_page.py::_combo_set_canonical):
-    #   "Notify once per visit"    - chỉ thông báo ĐÚNG 1 LẦN cho mỗi track,
-    #                                tới khi track đó biến mất khỏi khung
-    #                                hình hẳn (mặc định, chặt nhất, không
-    #                                phụ thuộc mốc thời gian - track quay
-    #                                đầu/bị che khuất thoáng qua vẫn không
-    #                                báo lại).
-    #   "Repeat after grace period" - thông báo lại nếu track đó "im lặng"
-    #                                (không có lượt nào xác nhận Stranger)
-    #                                lâu hơn ngưỡng grace period rồi xác
-    #                                nhận lại - giống hành vi PPE/Fire/Fall/
-    #                                Occupancy (_EVENT_LOG_GRACE_SEC).
+    #   "Notify once per visit"    - chỉ thông báo/ghi log ĐÚNG 1 LẦN cho mỗi
+    #                                track, tới khi track đó biến mất khỏi
+    #                                khung hình hẳn (mặc định, chặt nhất,
+    #                                không phụ thuộc mốc thời gian - track
+    #                                quay đầu/bị che khuất thoáng qua vẫn
+    #                                không báo lại).
+    #   "Repeat after grace period" - thông báo/ghi log lại nếu track đó "im
+    #                                lặng" (không có lượt nào xác nhận) lâu
+    #                                hơn ngưỡng grace period rồi xác nhận lại
+    #                                - giống hành vi PPE/Fire/Fall/Occupancy
+    #                                (_EVENT_LOG_GRACE_SEC).
     stranger_repeat_mode: str = "Notify once per visit"
     # Ngưỡng số người tối đa cho phép trong khung hình (chỉ có ý nghĩa khi
     # enable_occupancy bật - num_people tính từ occupancy, không phải
@@ -67,6 +70,15 @@ class AIConfig:
     # "occupancy_alert" (xem core/camera_pipeline.py:_run_ai). 0 = tắt cảnh
     # báo (không giới hạn), giữ hành vi cũ mặc định.
     occupancy_threshold: int = 0
+    # Ngưỡng cảnh báo "đám đông CỤC BỘ" theo heatmap lưới (chỉ có ý nghĩa khi
+    # enable_occupancy bật - dùng CHUNG dữ liệu track người với occupancy,
+    # xem CameraPipeline._update_crowd_heatmap) - KHÁC occupancy_threshold
+    # (đếm TỔNG số người): cái này đo mật độ TỪNG Ô nhỏ trong ROI, tăng dần
+    # khi người đứng tụ lại 1 chỗ, giảm dần vài giây sau khi họ rời đi - bắt
+    # được tình huống dồn ứ cục bộ dù tổng số người còn dưới ngưỡng occupancy.
+    # 0 = tắt (không cảnh báo, không vẽ overlay heatmap) - giữ hành vi cũ mặc
+    # định cho camera chưa cấu hình.
+    crowd_heatmap_threshold: float = 0.0
     # Kích thước ảnh đưa vào model YOLO (pose/ppe/fire/fall) - độc lập với
     # resolution gốc/hiển thị. Giảm xuống Fast/Balanced để tăng tốc khi chạy
     # nhiều camera AI cùng lúc (đổi lại độ chính xác giảm nhẹ với người/vật

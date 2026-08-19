@@ -719,6 +719,55 @@
                    </layout>
                   </item>
                   <item>
+                   <layout class="QHBoxLayout" name="layout_crowd_heatmap_threshold">
+                    <item>
+                     <widget class="QLabel" name="lbl_crowd_heatmap_threshold">
+                      <property name="text">
+                       <string>Alert on localized crowd density</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QDoubleSpinBox" name="spin_crowd_heatmap_threshold">
+                      <property name="toolTip">
+                       <string>0 = off. Unlike &quot;Alert if occupancy exceeds&quot; (total headcount), this tracks LOCALIZED density - people clustering in the same small area of the ROI, even if the total count is still under the occupancy limit. Builds up the longer people linger in one spot, cools down a few seconds after they leave. When set above 0, a heatmap overlay is also shown on the live view.</string>
+                      </property>
+                      <property name="specialValueText">
+                       <string>Off</string>
+                      </property>
+                      <property name="decimals">
+                       <number>1</number>
+                      </property>
+                      <property name="minimum">
+                       <double>0.0</double>
+                      </property>
+                      <property name="maximum">
+                       <double>20.0</double>
+                      </property>
+                      <property name="singleStep">
+                       <double>0.5</double>
+                      </property>
+                      <property name="value">
+                       <double>0.0</double>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <spacer name="spacer_crowd_heatmap_threshold">
+                      <property name="orientation">
+                       <enum>Qt::Horizontal</enum>
+                      </property>
+                      <property name="sizeHint" stdset="0">
+                       <size>
+                        <width>40</width>
+                        <height>20</height>
+                       </size>
+                      </property>
+                     </spacer>
+                    </item>
+                   </layout>
+                  </item>
+                  <item>
                    <widget class="QCheckBox" name="check_enable_ppe">
                     <property name="text">
                      <string>PPE monitoring  (requires drawing an ROI)</string>
@@ -751,14 +800,14 @@
                     <item>
                      <widget class="QLabel" name="lbl_stranger_repeat_mode">
                       <property name="text">
-                       <string>Repeat Stranger alert</string>
+                       <string>Repeat notifications</string>
                       </property>
                      </widget>
                     </item>
                     <item>
                      <widget class="QComboBox" name="combo_stranger_repeat_mode">
                       <property name="toolTip">
-                       <string>How to handle the SAME lingering stranger being seen again after briefly turning away/being partly hidden. "Notify once" only alerts the first time until they leave the frame entirely. "Repeat after grace period" alerts again if they go quiet for a while and get reconfirmed - same behavior as PPE/Fire/Fall/Overcrowding.</string>
+                       <string>How to handle the SAME person (known or stranger) being seen again after briefly turning away/being partly hidden. "Notify once" only alerts/logs the first time until they leave the frame entirely. "Repeat after grace period" alerts/logs again if they go quiet for a while and get reconfirmed - same behavior as PPE/Fire/Fall/Overcrowding.</string>
                       </property>
                       <item>
                        <property name="text">
