@@ -300,7 +300,16 @@ class DeviceManager(QObject):
             pipeline.remove_viewer(need_full_resolution=need_full_resolution)
 
     def is_pipeline_running(self, device_id: str) -> bool:
-        return device_id in self._pipelines
+        """CHỦ Ý kiểm tra thêm pipeline.isRunning() (thread QThread thật sự
+        còn sống), không chỉ "có trong dict" - trước đây CameraPipeline.run()
+        có thể thoát lặng lẽ nếu gặp lỗi bất ngờ giữa chừng (đã vá ở
+        run()/CameraPipeline, nhưng giữ thêm lớp phòng vệ này ở đây phòng
+        trường hợp thread chết vì lý do khác ngoài dự kiến - vd bị Qt/OS kill)
+        - nếu chỉ kiểm tra dict, các nơi gọi hàm này (gate_setup_dialog.py,
+        roi_editor_dialog.py) sẽ tưởng nhầm camera vẫn đang chạy dù thực ra
+        đã "đứng hình" vĩnh viễn."""
+        pipeline = self._pipelines.get(device_id)
+        return pipeline is not None and pipeline.isRunning()
 
     def shutdown(self) -> None:
         """Gọi khi thoát app - dừng sạch mọi pipeline đang chạy nền, tránh

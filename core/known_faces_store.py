@@ -182,18 +182,29 @@ class KnownFacesStore(QObject):
             return self._names[self._row_owner[idx]], best_sim
         return "Stranger", best_sim
 
-    def match_employee(self, embedding: np.ndarray) -> tuple[Optional[dict], float]:
+    def match_employee(
+        self, embedding: np.ndarray, threshold: float = _SIMILARITY_THRESHOLD
+    ) -> tuple[Optional[dict], float]:
         """Giống match() nhưng trả về TOÀN BỘ bản ghi employee (id, code,
         first_name, last_name, phone, email, dob...) thay vì chỉ tên - dùng
         bởi Face App (pages/face_attendance_page.py) để biết employee_id cho
         điểm danh (send_mobile_employee) và để prefill form "Sửa thông tin".
         Trả về (None, similarity thật đã đo được) nếu không ai vượt ngưỡng
-        (người lạ) - xem docstring match() về ý nghĩa similarity trả về."""
+        (người lạ) - xem docstring match() về ý nghĩa similarity trả về.
+
+        `threshold` mặc định _SIMILARITY_THRESHOLD (0.7, giữ hành vi cũ cho
+        Face App - chưa có yêu cầu đổi) - Gate Kiosk (pages/gate_kiosk_page.py)
+        truyền AISettings.instance().face_similarity_threshold thay vào, ĐỒNG
+        BỘ với ngưỡng camera thường (CameraPipeline._bind_face_identities gọi
+        match(), cùng field settings này) - trước đây Gate Kiosk luôn dùng
+        cứng 0.7 dù người dùng đã chỉnh face_similarity_threshold qua AI
+        Setting, khiến CÙNG 1 camera/1 người nhận diện tốt ở LiveView nhưng bị
+        từ chối ở Gate Kiosk (bug đã gặp thật)."""
         if self._embeddings_matrix.shape[0] == 0:
             return None, 0.0
         sims = self._embeddings_matrix @ embedding
         idx = int(np.argmax(sims))
         best_sim = float(sims[idx])
-        if best_sim > _SIMILARITY_THRESHOLD:
+        if best_sim > threshold:
             return self._employees[self._row_owner[idx]], best_sim
         return None, best_sim

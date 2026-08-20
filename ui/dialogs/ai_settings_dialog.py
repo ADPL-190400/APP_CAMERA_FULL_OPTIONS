@@ -109,6 +109,22 @@ class AISettingsDialog(QtWidgets.QDialog):
             )
         )
         face_form.addRow(tr("Face memory match strictness"), self.spin_face_memory_match_threshold)
+
+        self.spin_blacklist_match_threshold = QtWidgets.QDoubleSpinBox()
+        self.spin_blacklist_match_threshold.setRange(0.05, 0.95)
+        self.spin_blacklist_match_threshold.setSingleStep(0.05)
+        self.spin_blacklist_match_threshold.setDecimals(2)
+        self.spin_blacklist_match_threshold.setValue(settings.blacklist_match_threshold)
+        self.spin_blacklist_match_threshold.setToolTip(
+            tr(
+                "How closely a detected face must match a Blacklist entry to raise a Blacklist alert - "
+                "SEPARATE from \"Face match sensitivity\" above because Blacklist reference photos usually "
+                "come from lower-quality Stranger crops, not clean registration photos. Lower = looser "
+                "(fewer missed matches, but more false alerts). Higher = stricter (fewer false alerts, but "
+                "may miss a real match)."
+            )
+        )
+        face_form.addRow(tr("Blacklist match sensitivity"), self.spin_blacklist_match_threshold)
         layout.addWidget(face_group)
 
         stranger_group = QtWidgets.QGroupBox(tr("Stranger Anti-Spam"))
@@ -185,6 +201,7 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.spin_fall_min_count.setValue(defaults.fall_confirm_min_count)
         self.spin_face_similarity_threshold.setValue(defaults.face_similarity_threshold)
         self.spin_face_memory_match_threshold.setValue(defaults.face_memory_match_threshold)
+        self.spin_blacklist_match_threshold.setValue(defaults.blacklist_match_threshold)
         self.spin_stranger_confirm_min_score.setValue(defaults.stranger_confirm_min_score)
         self.spin_stranger_ambiguous_max_sim.setValue(defaults.stranger_ambiguous_max_sim)
         self.spin_stranger_min_frontal_ratio.setValue(defaults.stranger_min_frontal_ratio)
@@ -197,6 +214,7 @@ class AISettingsDialog(QtWidgets.QDialog):
         settings.fall_confirm_min_count = self.spin_fall_min_count.value()
         settings.face_similarity_threshold = round(self.spin_face_similarity_threshold.value(), 2)
         settings.face_memory_match_threshold = round(self.spin_face_memory_match_threshold.value(), 2)
+        settings.blacklist_match_threshold = round(self.spin_blacklist_match_threshold.value(), 2)
         settings.stranger_confirm_min_score = round(self.spin_stranger_confirm_min_score.value(), 2)
         settings.stranger_ambiguous_max_sim = round(self.spin_stranger_ambiguous_max_sim.value(), 2)
         settings.stranger_min_frontal_ratio = round(self.spin_stranger_min_frontal_ratio.value(), 2)

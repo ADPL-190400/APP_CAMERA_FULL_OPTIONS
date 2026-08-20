@@ -35,6 +35,7 @@ _ALARM_KINDS = [
     ("stranger_alert", "🧑‍❓ Stranger"),
     ("occupancy_alert", "👥 Overcrowding"),
     ("crowd_alert", "🌡️ Crowd Density"),
+    ("blacklist_alert", "⛔ Blacklist Match"),
 ]
 
 # Gián đoạn phát hiện ngắn hơn mức này vẫn tính là "đang tiếp diễn" (không
@@ -292,6 +293,13 @@ class LiveViewPage(QtWidgets.QWidget):
                 # log riêng, không dồn chung thành 1 (đồng bộ với Event Log -
                 # xem CameraPipeline._capture_face_events).
                 for track_id in result.get("stranger_track_ids", []):
+                    if self._alarm_dedup.is_new_occurrence((device_id, key, track_id)):
+                        self._append_log(self.list_alarms, device_id, tr(label), is_alarm=True)
+                continue
+            if key == "blacklist_alert":
+                # Y hệt stranger_alert ở trên - phân biệt nhiều người trong
+                # blacklist xuất hiện gần nhau về thời gian.
+                for track_id in result.get("blacklist_track_ids", []):
                     if self._alarm_dedup.is_new_occurrence((device_id, key, track_id)):
                         self._append_log(self.list_alarms, device_id, tr(label), is_alarm=True)
                 continue

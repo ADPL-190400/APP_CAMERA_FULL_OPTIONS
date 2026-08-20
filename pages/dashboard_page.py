@@ -70,6 +70,7 @@ _ALARM_KINDS = [
     ("stranger_alert", "🧑‍❓ Stranger"),
     ("occupancy_alert", "👥 Overcrowding"),
     ("crowd_alert", "🌡️ Crowd Density"),
+    ("blacklist_alert", "⛔ Blacklist Match"),
 ]
 
 _PRESENCE_GRACE_SEC = 5.0   # giống liveview_page.py - tránh Event Feed nhảy text liên tục
@@ -279,6 +280,12 @@ class DashboardPage(QtWidgets.QWidget):
                 # không dồn chung 1 dòng (đồng bộ với Event Log - xem
                 # CameraPipeline._capture_face_events).
                 for track_id in result.get("stranger_track_ids", []):
+                    if self._alarm_dedup.is_new_occurrence((device_id, key, track_id)):
+                        self._append_event("Alarms", tr("{name}: {label}").format(name=name, label=tr(label)))
+                continue
+            if key == "blacklist_alert":
+                # Y hệt stranger_alert ở trên.
+                for track_id in result.get("blacklist_track_ids", []):
                     if self._alarm_dedup.is_new_occurrence((device_id, key, track_id)):
                         self._append_event("Alarms", tr("{name}: {label}").format(name=name, label=tr(label)))
                 continue

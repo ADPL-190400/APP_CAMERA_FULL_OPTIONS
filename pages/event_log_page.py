@@ -15,9 +15,9 @@ import os
 from datetime import datetime, timedelta
 
 from PyQt6 import uic, QtWidgets
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QPixmap, QIcon
-from PyQt6.QtWidgets import QHeaderView, QTableWidgetItem, QDialog, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QHeaderView, QTableWidgetItem, QDialog, QVBoxLayout, QLabel, QMenu
 
 from core.device_manager import DeviceManager
 from core.event_store import EventStore
@@ -50,13 +50,16 @@ _COL_WIDTHS = {
 # text hiển thị của item bị tr() dịch theo ngôn ngữ hiện tại nên không còn
 # dùng làm key tra cứu được (bug đã gặp ở nhiều combobox khác trong app).
 _TIME_FILTER_KEYS = ["All time", "Today", "Last 7 days", "Last 30 days"]
+# Index 1 ("Today") KHÔNG dùng giá trị ở đây - cần mốc 00:00 hôm nay theo
+# LỊCH (tính riêng trong _current_filters), không phải rolling timedelta như
+# 2 mục còn lại - giữ None ở đây để không ai lỡ dùng nhầm.
 _TIME_FILTER_VALUES: list[timedelta | None] = [
-    None, timedelta(days=1), timedelta(days=7), timedelta(days=30),
+    None, None, timedelta(days=7), timedelta(days=30),
 ]
 
 _KIND_FILTER_KEYS = [
     "All types", "PPE Violation", "Fire / Smoke", "Fall", "Stranger", "Check-in", "Check-out", "Overcrowding",
-    "Recognized", "Crowd Density",
+    "Recognized", "Crowd Density", "Blacklist Match",
 ]
 _KIND_FILTER_VALUES: list[EventKind | None] = [
     None,
@@ -69,12 +72,20 @@ _KIND_FILTER_VALUES: list[EventKind | None] = [
     EventKind.OCCUPANCY_ALERT,
     EventKind.FACE_RECOGNIZED,
     EventKind.CROWD_ALERT,
+    EventKind.BLACKLIST_ALERT,
 ]
 
 _PAGE_SIZE = 50
 
 
 class EventLogPage(QtWidgets.QWidget):
+    # Bấm "Add to Blacklist..." (chuột phải, CHỈ hiện cho dòng Stranger) -
+    # menu_window.py chuyển sang blacklist_page + mở sẵn dialog tạo entry
+    # với ĐÚNG ảnh này đã tick chọn (cầu nối nhẹ, xem pages/blacklist_page.py
+    # ::open_create_dialog). Tham số = event_id (KHÔNG phải đường dẫn ảnh -
+    # picker cần event_id để tra embedding đã lưu sẵn, xem EventStore.get_embedding).
+    open_blacklist_create = pyqtSignal(str)
+
     def __init__(self):
         super().__init__()
         ui_path = os.path.join(BASE_DIR, "ui", "event_log_page.ui")
@@ -83,8 +94,11 @@ class EventLogPage(QtWidgets.QWidget):
         self.device_manager = DeviceManager.instance()
         self.event_store = EventStore.instance()
         self._current_page = 0  # reset về 0 mỗi khi đổi filter - xem _on_filter_changed
+        self._current_events: list = []  # cùng thứ tự với các dòng đang hiện trong table_events - xem reload_events/_on_table_context_menu
 
         self.table_events.setIconSize(_THUMB_SIZE)
+        self.table_events.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_events.customContextMenuRequested.connect(self._on_table_context_menu)
         header = self.table_events.horizontalHeader()
         header.setSectionResizeMode(COL_IMAGE, QHeaderView.ResizeMode.Fixed)
         for col in (COL_TIME, COL_CAMERA, COL_KIND):
@@ -161,8 +175,17 @@ class EventLogPage(QtWidgets.QWidget):
             self.combo_filter_camera.currentText() if self.combo_filter_camera.currentIndex() != 0 else None
         )
         kind_filter = _KIND_FILTER_VALUES[self.combo_filter_kind.currentIndex()]
-        time_delta = _TIME_FILTER_VALUES[self.combo_filter_time.currentIndex()]
-        since = datetime.now() - time_delta if time_delta is not None else None
+        time_index = self.combo_filter_time.currentIndex()
+        if time_index == 1:
+            # "Today" (_TIME_FILTER_KEYS[1]) PHẢI là mốc 00:00 hôm nay (theo
+            # LỊCH), KHÔNG PHẢI timedelta(days=1) (24 giờ gần nhất, kiểu
+            # "rolling window" giống Last 7/30 days) - bug đã gặp thật: chọn
+            # "Today" lúc ví dụ 9h sáng vẫn hiện event từ chiều/tối HÔM QUA
+            # (nằm trong 24 giờ gần nhất) trông như filter không hoạt động.
+            since = datetime.combine(datetime.now().date(), datetime.min.time())
+        else:
+            time_delta = _TIME_FILTER_VALUES[time_index]
+            since = datetime.now() - time_delta if time_delta is not None else None
         return {"camera_name": camera_filter, "kind": kind_filter, "since": since}
 
     def _on_filter_changed(self) -> None:
@@ -192,6 +215,7 @@ class EventLogPage(QtWidgets.QWidget):
         events = self.event_store.query_events(
             **filters, limit=_PAGE_SIZE, offset=self._current_page * _PAGE_SIZE
         )
+        self._current_events = events
 
         self.lbl_event_count.setText(tr("{n} events").format(n=total))
         self.lbl_page_info.setText(
@@ -220,6 +244,26 @@ class EventLogPage(QtWidgets.QWidget):
                 row, COL_KIND, QTableWidgetItem(tr(EVENT_KIND_LABELS.get(event.kind, event.kind.value)))
             )
             table.setItem(row, COL_DETAIL, QTableWidgetItem(event.detail))
+
+    def _on_table_context_menu(self, pos) -> None:
+        """Chuột phải 1 dòng - CHỈ hiện "Add to Blacklist..." cho dòng
+        Stranger (Event Log không phân biệt được người quen/Blacklist đã có
+        đủ dữ liệu để thêm - chỉ Stranger mới có ý nghĩa "chưa biết là ai,
+        cần đưa vào danh sách theo dõi"), VÀ chỉ khi event đó đã có embedding
+        lưu sẵn (event cũ trước khi tính năng này tồn tại thì không - picker
+        sẽ tự lọc lại lần nữa, đây chỉ là lọc sớm cho đỡ hiện menu vô ích)."""
+        row = self.table_events.rowAt(pos.y())
+        if row < 0 or row >= len(self._current_events):
+            return
+        event = self._current_events[row]
+        if event.kind != EventKind.STRANGER_ALERT:
+            return
+        if not self.event_store.get_embedding(event.id):
+            return
+        menu = QMenu(self)
+        act = menu.addAction(tr("⛔  Add to Blacklist…"))
+        act.triggered.connect(lambda: self.open_blacklist_create.emit(event.id))
+        menu.exec(self.table_events.viewport().mapToGlobal(pos))
 
     def _on_cell_entered(self, row: int, column: int) -> None:
         cursor = Qt.CursorShape.PointingHandCursor if column == COL_IMAGE else Qt.CursorShape.ArrowCursor

@@ -130,7 +130,11 @@ class FaceCaptureWorker(QThread):
 
         try:
             while self._running:
-                ok, frame = cap.read()
+                try:
+                    ok, frame = cap.read()
+                except Exception as exc:  # noqa: BLE001 - lỗi decode/kết nối từ chính OpenCV
+                    print(f"[FaceApp] cap.read() lỗi: {exc}")
+                    ok, frame = False, None
                 if not ok:
                     self.msleep(200)
                     continue
@@ -140,18 +144,26 @@ class FaceCaptureWorker(QThread):
                 # bấm "Chụp", vẽ đè lên sẽ làm hỏng chất lượng embedding.
                 self.latest_frame = frame
 
-                now = time.monotonic()
-                if now - self._last_detect_ts >= _DETECT_INTERVAL_SEC:
-                    self._last_detect_ts = now
-                    self._run_detect(frame)
+                # Bọc riêng phần xử lý - 1 lỗi bất ngờ (frame lỗi, model lỗi
+                # thoáng qua...) trước đây sẽ thoát thẳng khỏi run(), làm
+                # kiosk Face App "đứng hình" lặng lẽ mà không ai biết - cùng
+                # lớp bug đã vá ở core/camera_pipeline.py::run(), xem ghi chú
+                # ở đó.
+                try:
+                    now = time.monotonic()
+                    if now - self._last_detect_ts >= _DETECT_INTERVAL_SEC:
+                        self._last_detect_ts = now
+                        self._run_detect(frame)
 
-                # Frame emit KHÔNG vẽ đè gì lên - phản hồi trực quan (ring,
-                # tên...) do FaceScanView/Qt widget vẽ ở lớp trên, không phải
-                # baked vào pixel như cv2 overlay bản trước (xem plan: cũng
-                # né được cv2.putText không hiện dấu tiếng Việt).
-                image = self._to_qimage(frame)
-                if image is not None:
-                    self.frame_ready.emit(image)
+                    # Frame emit KHÔNG vẽ đè gì lên - phản hồi trực quan (ring,
+                    # tên...) do FaceScanView/Qt widget vẽ ở lớp trên, không phải
+                    # baked vào pixel như cv2 overlay bản trước (xem plan: cũng
+                    # né được cv2.putText không hiện dấu tiếng Việt).
+                    image = self._to_qimage(frame)
+                    if image is not None:
+                        self.frame_ready.emit(image)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[FaceApp] Lỗi xử lý 1 frame (đã bỏ qua, tiếp tục chạy): {exc}")
         finally:
             cap.release()
 

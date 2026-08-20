@@ -52,6 +52,18 @@ class AISettings:
     # đổi nhiều giữa 2 lần thấy); thấp hơn = lỏng hơn.
     face_memory_match_threshold: float = 0.6
 
+    # Độ tương đồng tối thiểu để coi 1 khuôn mặt phát hiện được là khớp với 1
+    # entry trong Blacklist (core/blacklist_store.py::BlacklistStore.match,
+    # dùng bởi core/camera_pipeline.py) - TÁCH RIÊNG khỏi
+    # face_similarity_threshold (đã quyết định lúc thiết kế, không dùng
+    # chung) vì 2 loại dữ liệu tham chiếu khác bản chất: known-face đến từ
+    # backend/đăng ký chính thức (thường ảnh chuẩn, đủ sáng), còn Blacklist
+    # đến từ ảnh CROP STRANGER thực tế (chất lượng thấp hơn hẳn - xem lịch sử
+    # đo đạc) nên cần ngưỡng nới hơn để không bỏ sót, đổi lại chấp nhận báo
+    # giả nhiều hơn 1 chút (mức độ nghiêm trọng của bỏ sót > báo giả trong
+    # use case này).
+    blacklist_match_threshold: float = 0.55
+
     # "Xác nhận té ngã" (core/camera_pipeline.py::_check_fall): trong
     # fall_confirm_window lượt AI GẦN NHẤT, phải có ÍT NHẤT
     # fall_confirm_min_count lượt phát hiện "đang ngã" (fall_conf ở trên đã

@@ -564,6 +564,8 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "Crowd Density": {"vi": "Mật độ đông cục bộ", "en": "Crowd Density", "ja": "局所的な混雑"},
     "🌡️ Crowd Density": {"vi": "🌡️ Mật độ đông cục bộ", "en": "🌡️ Crowd Density", "ja": "🌡️ 局所的な混雑"},
+    "Blacklist Match": {"vi": "Khớp Blacklist", "en": "Blacklist Match", "ja": "ブラックリスト一致"},
+    "⛔ Blacklist Match": {"vi": "⛔ Khớp Blacklist", "en": "⛔ Blacklist Match", "ja": "⛔ ブラックリスト一致"},
     "PPE monitoring  (requires drawing an ROI)": {
         "vi": "Giám sát đồ bảo hộ PPE  (cần vẽ ROI)",
         "en": "PPE monitoring  (requires drawing an ROI)",
@@ -648,6 +650,28 @@ STRINGS: dict[str, dict[str, str]] = {
         "だけ一致する必要があるか。高いほど厳格（安全だが、悪い角度の後に再接続できず、新しい不審者通知や既"
         "知の人物の一時的な「不明」として表示される場合がある）。低いほど緩やか（再接続しやすいが、似た外見"
         "の別人を混同するリスクが上がる）。",
+    },
+    "Blacklist match sensitivity": {
+        "vi": "Độ nhạy khớp Blacklist",
+        "en": "Blacklist match sensitivity",
+        "ja": "ブラックリスト一致感度",
+    },
+    "How closely a detected face must match a Blacklist entry to raise a Blacklist alert - SEPARATE from "
+    "\"Face match sensitivity\" above because Blacklist reference photos usually come from lower-quality "
+    "Stranger crops, not clean registration photos. Lower = looser (fewer missed matches, but more false "
+    "alerts). Higher = stricter (fewer false alerts, but may miss a real match).": {
+        "vi": "1 khuôn mặt phát hiện được phải giống 1 entry trong Blacklist tới mức nào mới báo động - TÁCH "
+        "RIÊNG khỏi \"Độ nhạy nhận diện khuôn mặt\" ở trên vì ảnh tham chiếu Blacklist thường lấy từ ảnh crop "
+        "Stranger chất lượng thấp hơn, không phải ảnh đăng ký chuẩn. Thấp hơn = lỏng hơn (ít bỏ sót hơn, "
+        "nhưng báo giả nhiều hơn). Cao hơn = chặt hơn (ít báo giả hơn, nhưng có thể bỏ sót khớp thật).",
+        "en": "How closely a detected face must match a Blacklist entry to raise a Blacklist alert - "
+        "SEPARATE from \"Face match sensitivity\" above because Blacklist reference photos usually come "
+        "from lower-quality Stranger crops, not clean registration photos. Lower = looser (fewer missed "
+        "matches, but more false alerts). Higher = stricter (fewer false alerts, but may miss a real match).",
+        "ja": "検知した顔がBlacklistのエントリとどれだけ一致すればBlacklist警告を出すか - 上の「顔認識の感"
+        "度」とは別設定。Blacklistの参照写真は通常、正式な登録写真ではなく画質の低い不審者クロップ画像から"
+        "取得されるため。低いほど緩やか（見逃しは減るが誤警告が増える）。高いほど厳格（誤警告は減るが、本物"
+        "の一致を見逃す可能性がある）。",
     },
     "🔄  Refresh Known Faces": {"vi": "🔄  Làm mới danh sách khuôn mặt", "en": "🔄  Refresh Known Faces", "ja": "🔄  既知の顔を更新"},
     "Known faces: not loaded": {"vi": "Khuôn mặt đã biết: chưa tải", "en": "Known faces: not loaded", "ja": "既知の顔: 未読込"},
@@ -1301,4 +1325,85 @@ STRINGS: dict[str, dict[str, str]] = {
         "して扱われます。この値を下げるとより斜めの顔を許容し、上げるとより正面を向いた顔を必要とします。",
     },
     "Reset to Defaults": {"vi": "Khôi phục mặc định", "en": "Reset to Defaults", "ja": "デフォルトに戻す"},
+
+    # ------------------------------------------------------------------ #
+    # menu_window.ui - nút sidebar mở blacklist_page.
+    # ------------------------------------------------------------------ #
+    "⛔  Blacklist": {"vi": "⛔  Blacklist", "en": "⛔  Blacklist", "ja": "⛔  ブラックリスト"},
+
+    # ------------------------------------------------------------------ #
+    # pages/blacklist_page.py - trang quản lý Blacklist.
+    # ------------------------------------------------------------------ #
+    "Blacklist": {"vi": "Blacklist", "en": "Blacklist", "ja": "ブラックリスト"},
+    "People flagged here are matched against every camera with Face Recognition enabled - a match raises "
+    "a Blacklist alert (highest priority, shown in red) regardless of known/stranger status.": {
+        "vi": "Người được đánh dấu ở đây sẽ được so khớp trên mọi camera đang bật Nhận diện khuôn mặt - khớp "
+        "sẽ tạo cảnh báo Blacklist (ưu tiên cao nhất, hiện màu đỏ) bất kể trạng thái quen/lạ.",
+        "en": "People flagged here are matched against every camera with Face Recognition enabled - a match "
+        "raises a Blacklist alert (highest priority, shown in red) regardless of known/stranger status.",
+        "ja": "ここで登録された人物は、顔認識が有効な全カメラと照合されます - 一致するとBlacklist警告（既知/"
+        "不審者の状態に関わらず最優先、赤色で表示）が発生します。",
+    },
+    "➕  New Entry": {"vi": "➕  Thêm mới", "en": "➕  New Entry", "ja": "➕  新規登録"},
+    "🖼  Add Photos…": {"vi": "🖼  Thêm ảnh…", "en": "🖼  Add Photos…", "ja": "🖼  写真を追加…"},
+    "✎  Edit": {"vi": "✎  Sửa", "en": "✎  Edit", "ja": "✎  編集"},
+    "🗑  Delete": {"vi": "🗑  Xoá", "en": "🗑  Delete", "ja": "🗑  削除"},
+    "Photo": {"vi": "Ảnh", "en": "Photo", "ja": "写真"},
+    "Photos": {"vi": "Số ảnh", "en": "Photos", "ja": "写真数"},
+    "Note": {"vi": "Ghi chú", "en": "Note", "ja": "メモ"},
+    "Active": {"vi": "Đang bật", "en": "Active", "ja": "有効"},
+    "Inactive": {"vi": "Đã tắt", "en": "Inactive", "ja": "無効"},
+    "Delete entry": {"vi": "Xoá entry", "en": "Delete entry", "ja": "エントリを削除"},
+    "Delete \"{name}\" from the blacklist? This cannot be undone.": {
+        "vi": "Xoá \"{name}\" khỏi blacklist? Không thể hoàn tác.",
+        "en": "Delete \"{name}\" from the blacklist? This cannot be undone.",
+        "ja": "\"{name}\" をブラックリストから削除しますか？元に戻せません。",
+    },
+    "Edit Entry": {"vi": "Sửa Entry", "en": "Edit Entry", "ja": "エントリを編集"},
+    "Name / Label": {"vi": "Tên / Nhãn", "en": "Name / Label", "ja": "名前 / ラベル"},
+    "Active (raise alerts when matched)": {
+        "vi": "Đang bật (báo động khi khớp)",
+        "en": "Active (raise alerts when matched)",
+        "ja": "有効（一致時に警告を発する）",
+    },
+    "Name required": {"vi": "Cần nhập tên", "en": "Name required", "ja": "名前が必要です"},
+    "Enter a name/label first.": {
+        "vi": "Hãy nhập tên/nhãn trước.", "en": "Enter a name/label first.", "ja": "先に名前/ラベルを入力してください。",
+    },
+
+    # ------------------------------------------------------------------ #
+    # ui/dialogs/blacklist_photo_picker_dialog.py - lưới chọn ảnh (tạo entry
+    # mới / bổ sung ảnh vào entry đã có).
+    # ------------------------------------------------------------------ #
+    "New Blacklist Entry": {"vi": "Tạo entry Blacklist mới", "en": "New Blacklist Entry", "ja": "新規ブラックリストエントリ"},
+    "Add Photos to \"{name}\"": {
+        "vi": "Thêm ảnh vào \"{name}\"", "en": "Add Photos to \"{name}\"", "ja": "\"{name}\" に写真を追加",
+    },
+    "Camera": {"vi": "Camera", "en": "Camera", "ja": "カメラ"},
+    "Time": {"vi": "Thời gian", "en": "Time", "ja": "期間"},
+    "Click to select multiple photos of the SAME person, then confirm below.": {
+        "vi": "Bấm chọn nhiều ảnh của CÙNG 1 người, sau đó xác nhận bên dưới.",
+        "en": "Click to select multiple photos of the SAME person, then confirm below.",
+        "ja": "同じ人物の写真を複数クリックして選択し、下で確定してください。",
+    },
+    "e.g. \"Unknown - red jacket 15/8\" or a real name if known": {
+        "vi": "vd \"Người lạ - áo đỏ 15/8\" hoặc tên thật nếu biết",
+        "en": "e.g. \"Unknown - red jacket 15/8\" or a real name if known",
+        "ja": "例：「不明 - 赤いジャケット 8/15」、判明していれば実名",
+    },
+    "Reason for adding to the blacklist (optional)": {
+        "vi": "Lý do đưa vào blacklist (tuỳ chọn)",
+        "en": "Reason for adding to the blacklist (optional)",
+        "ja": "ブラックリストに追加する理由（任意）",
+    },
+    "No photos selected": {"vi": "Chưa chọn ảnh nào", "en": "No photos selected", "ja": "写真が選択されていません"},
+    "Select at least 1 photo first.": {
+        "vi": "Hãy chọn ít nhất 1 ảnh trước.", "en": "Select at least 1 photo first.", "ja": "先に1枚以上の写真を選択してください。",
+    },
+    "No usable photos": {"vi": "Không có ảnh dùng được", "en": "No usable photos", "ja": "使用可能な写真がありません"},
+    "The selected photos have no usable face data.": {
+        "vi": "Ảnh đã chọn không có dữ liệu khuôn mặt dùng được.",
+        "en": "The selected photos have no usable face data.",
+        "ja": "選択した写真には使用可能な顔データがありません。",
+    },
 }

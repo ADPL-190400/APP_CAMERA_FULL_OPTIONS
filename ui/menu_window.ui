@@ -306,6 +306,19 @@
          </widget>
         </item>
         <item>
+         <widget class="QPushButton" name="btn_nav_blacklist">
+          <property name="styleSheet">
+           <string notr="true">text-align: left;</string>
+          </property>
+          <property name="text">
+           <string>⛔  Blacklist</string>
+          </property>
+          <property name="checkable">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QLabel" name="lbl_section_attendance">
           <property name="text">
            <string>ATTENDANCE</string>

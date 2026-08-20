@@ -75,7 +75,8 @@ class EventStore(QObject):
                 kind TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 image_path TEXT NOT NULL,
-                detail TEXT NOT NULL DEFAULT ''
+                detail TEXT NOT NULL DEFAULT '',
+                embedding BLOB DEFAULT NULL
             )
             """
         )
@@ -84,6 +85,7 @@ class EventStore(QObject):
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind)")
         self._conn.commit()
         self._migrate_detail_column()
+        self._migrate_embedding_column()
         self._migrate_legacy_json()
         self._last_prune = time.monotonic()
         self._prune_old_events()
@@ -106,6 +108,17 @@ class EventStore(QObject):
             self._conn.commit()
         except sqlite3.OperationalError:
             pass  # cột đã tồn tại (DB tạo mới đã có sẵn, hoặc đã migrate từ trước)
+
+    def _migrate_embedding_column(self) -> None:
+        """embedding (BLOB, NULL mặc định) - CHỈ Stranger/Blacklist mới có
+        giá trị (xem add_event/core/blacklist_store.py) - lưu ngay lúc event
+        được tạo để tránh phải detect lại trên ảnh crop đã lưu (đo thật: ~55%
+        thất bại vì crop quá nhỏ/đã nén JPEG, xem CameraPipeline._capture_face_events)."""
+        try:
+            self._conn.execute("ALTER TABLE events ADD COLUMN embedding BLOB DEFAULT NULL")
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # cột đã tồn tại
 
     # ------------------------------------------------------------------ #
     # Migration từ events.json bản cũ (chỉ chạy nếu file đó còn tồn tại -
@@ -133,7 +146,10 @@ class EventStore(QObject):
     # ------------------------------------------------------------------ #
     # Ghi
     # ------------------------------------------------------------------ #
-    def add_event(self, device_id: str, camera_name: str, kind: EventKind, frame, detail: str = "") -> EventRecord:
+    def add_event(
+        self, device_id: str, camera_name: str, kind: EventKind, frame, detail: str = "",
+        embedding: bytes | None = None,
+    ) -> EventRecord:
         """Lưu 1 frame (numpy BGR, full-res) thành ảnh JPEG + thêm 1
         EventRecord (INSERT incremental, KHÔNG ghi lại toàn bộ bảng). Gọi từ
         thread của CameraPipeline (không phải main thread) - an toàn nhờ
@@ -142,17 +158,24 @@ class EventStore(QObject):
 
         detail: thông tin phụ hiện tại Event Log (vd tên người quen được
         nhận diện - xem EventRecord.detail) - rỗng nếu loại sự kiện không có
-        danh tính cụ thể để hiện (PPE/Fire/Fall/Stranger/Overcrowding)."""
+        danh tính cụ thể để hiện (PPE/Fire/Fall/Stranger/Overcrowding).
+
+        embedding: face.normed_embedding.tobytes() (float32 512-D, ~2KB) -
+        CHỈ Stranger/Blacklist truyền vào (xem CameraPipeline._capture_face_events)
+        - None với mọi loại khác. KHÔNG trả lại qua query_events()/EventRecord
+        (giữ việc load danh sách Event Log nhẹ, đa số lượt không cần tới) -
+        đọc riêng qua get_embedding() khi thực sự cần (vd gallery picker
+        Blacklist, xem core/blacklist_store.py)."""
         record = EventRecord.new(device_id, camera_name, kind, image_path="", detail=detail)
         record.image_path = self._save_image(record, frame)
 
         with self._lock:
             self._conn.execute(
-                "INSERT INTO events (id, device_id, camera_name, kind, timestamp, image_path, detail) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO events (id, device_id, camera_name, kind, timestamp, image_path, detail, embedding) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     record.id, record.device_id, record.camera_name, record.kind.value,
-                    record.timestamp, record.image_path, record.detail,
+                    record.timestamp, record.image_path, record.detail, embedding,
                 ),
             )
             self._conn.commit()
@@ -160,6 +183,15 @@ class EventStore(QObject):
 
         self.event_added.emit(record)
         return record
+
+    def get_embedding(self, event_id: str) -> bytes | None:
+        """Đọc riêng embedding của 1 event (không đi qua query_events() - xem
+        docstring add_event) - None nếu event không tồn tại hoặc không có
+        embedding (mọi loại trừ Stranger/Blacklist)."""
+        with self._lock:
+            cur = self._conn.execute("SELECT embedding FROM events WHERE id = ?", (event_id,))
+            row = cur.fetchone()
+        return row[0] if row else None
 
     @staticmethod
     def _save_image(record: EventRecord, frame) -> str:

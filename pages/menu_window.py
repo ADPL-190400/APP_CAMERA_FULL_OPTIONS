@@ -15,6 +15,7 @@ from pages.liveview_page import LiveViewPage
 from pages.device_page import DeviceManagementPage
 from pages.camera_config_page import CameraConfigPage
 from pages.event_log_page import EventLogPage
+from pages.blacklist_page import BlacklistPage
 from pages.face_attendance_page import FaceAttendanceWindow
 from pages.gate_kiosk_page import GateWindow
 
@@ -50,6 +51,7 @@ _TR_TEXT_MAP = {
     "btn_nav_settings": "🎚️  AI Setting",
     "lbl_section_monitor": "LOG",
     "btn_nav_event_log": "≡  Event Log",
+    "btn_nav_blacklist": "⛔  Blacklist",
     "lbl_section_attendance": "ATTENDANCE",
     "btn_nav_attendance": "🪪  Face App",
     "btn_nav_checkin": "🟢  Check In",
@@ -115,6 +117,7 @@ class MenuWindow(QMainWindow):
         self.device_page = DeviceManagementPage()
         self.camera_config_page = CameraConfigPage()
         self.event_log_page = EventLogPage()
+        self.blacklist_page = BlacklistPage()
 
 
         self.stackedPages.addWidget(self.dashboard_page)
@@ -122,6 +125,7 @@ class MenuWindow(QMainWindow):
         self.stackedPages.addWidget(self.device_page)
         self.stackedPages.addWidget(self.camera_config_page)
         self.stackedPages.addWidget(self.event_log_page)
+        self.stackedPages.addWidget(self.blacklist_page)
 
 
         # Bấm ⚙ ở cột Operation (device_management_page) -> mở đúng camera đó
@@ -130,6 +134,11 @@ class MenuWindow(QMainWindow):
 
         # Bấm "All →" ở Event Feed (dashboard_page) -> chuyển sang EventLogPage.
         self.dashboard_page.open_event_log.connect(self._on_open_event_log)
+
+        # Chuột phải 1 dòng Stranger ở Event Log -> "Add to Blacklist..." ->
+        # chuyển sang blacklist_page + mở sẵn dialog tạo entry với đúng ảnh
+        # đó đã tick chọn (cầu nối nhẹ, xem pages/blacklist_page.py).
+        self.event_log_page.open_blacklist_create.connect(self._on_open_blacklist_create)
 
         # Toggle dark/light mode
         self.btn_dark_mode.clicked.connect(self._on_toggle_theme)
@@ -161,6 +170,7 @@ class MenuWindow(QMainWindow):
             self.btn_nav_device_management: self.device_page,
             self.btn_nav_camera_config: self.camera_config_page,
             self.btn_nav_event_log: self.event_log_page,
+            self.btn_nav_blacklist: self.blacklist_page,
         }
 
         self.nav_group = QButtonGroup(self)
@@ -259,6 +269,14 @@ class MenuWindow(QMainWindow):
         self.event_log_page.reload_events()
         self.stackedPages.setCurrentWidget(self.event_log_page)
         self.btn_nav_event_log.setChecked(True)
+
+    def _on_open_blacklist_create(self, event_id: str) -> None:
+        """Nhận signal event_log_page.open_blacklist_create (chuột phải 1
+        dòng Stranger -> "Add to Blacklist...") -> chuyển sang blacklist_page
+        + mở sẵn dialog tạo entry với đúng ảnh đó đã tick chọn."""
+        self.stackedPages.setCurrentWidget(self.blacklist_page)
+        self.btn_nav_blacklist.setChecked(True)
+        self.blacklist_page.open_create_dialog(preselect_event_id=event_id)
 
     def _on_open_attendance(self) -> None:
         """Bấm "🪪 Face App" (sidebar, mục ATTENDANCE) -> mở cửa sổ kiosk

@@ -233,7 +233,15 @@ class GateCaptureWorker(QThread):
                 now = time.monotonic()
                 if now - self._last_ai_ts >= _AI_INTERVAL_SEC:
                     self._last_ai_ts = now
-                    self._run_ai(frame)
+                    # Bọc riêng - 1 lỗi bất ngờ ở _run_ai (frame lỗi, model
+                    # lỗi thoáng qua...) trước đây sẽ thoát thẳng khỏi run(),
+                    # làm cả kiosk "đứng hình" lặng lẽ (không detect/chấm công
+                    # được nữa) mà không ai biết - cùng lớp bug đã vá ở
+                    # core/camera_pipeline.py::run(), xem ghi chú ở đó.
+                    try:
+                        self._run_ai(frame)
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[GateKiosk] Lỗi xử lý 1 frame (đã bỏ qua, tiếp tục chạy): {exc}")
             self.msleep(_POLL_INTERVAL_MS)
 
     def _get_tracker(self) -> DeepSort:
@@ -371,7 +379,14 @@ class GateCaptureWorker(QThread):
                     and estimate_face_frontal_ratio(face.kps) >= settings.stranger_min_frontal_ratio
                 ):
                     self._track_seen_well.add(best_track_id)
-                employee, sim = store.match_employee(face.normed_embedding)
+                # threshold=settings.face_similarity_threshold - ĐỒNG BỘ với
+                # ngưỡng camera thường (CameraPipeline dùng đúng field này qua
+                # store.match()), không dùng mặc định cứng 0.7 của
+                # match_employee() nữa (bug đã gặp thật: chỉnh
+                # face_similarity_threshold qua AI Setting không có tác dụng
+                # gì ở Gate Kiosk, cùng 1 camera/người nhận tốt ở LiveView
+                # nhưng bị từ chối ở đây).
+                employee, sim = store.match_employee(face.normed_embedding, threshold=settings.face_similarity_threshold)
                 if employee is None:
                     self._track_best_sim[best_track_id] = max(sim, self._track_best_sim.get(best_track_id, 0.0))
                 else:

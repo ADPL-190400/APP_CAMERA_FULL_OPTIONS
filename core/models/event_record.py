@@ -1,9 +1,11 @@
 """
 Model dữ liệu cho 1 sự kiện cảnh báo (Event Log) - ppe/fire/fall/stranger/
-face_checkin/face_checkout/face_recognized/occupancy, mỗi sự kiện kèm 1 ảnh
-bằng chứng (full frame lúc alert được xác nhận, RIÊNG stranger/
-face_recognized/face_checkin/face_checkout dùng ảnh crop khuôn mặt - xem
-CameraPipeline._capture_face_events/pages/gate_kiosk_page.py).
+face_checkin/face_checkout/face_recognized/occupancy/crowd/blacklist, mỗi sự
+kiện kèm 1 ảnh bằng chứng (full frame lúc alert được xác nhận, RIÊNG stranger/
+face_recognized/face_checkin/face_checkout/blacklist dùng ảnh crop khuôn mặt -
+xem CameraPipeline._capture_face_events/pages/gate_kiosk_page.py). Riêng
+stranger/blacklist còn lưu kèm embedding (EventStore.add_event(embedding=...))
+- xem core/blacklist_store.py.
 """
 from __future__ import annotations
 
@@ -35,6 +37,13 @@ class EventKind(str, Enum):
     # số người trong ROI): cảnh báo này bắt trường hợp người tụ tập dồn vào 1
     # góc nhỏ dù tổng số người chưa vượt ngưỡng occupancy.
     CROWD_ALERT = "crowd_alert"
+    # Khớp với 1 entry trong core/blacklist_store.py (BlacklistStore, quản lý
+    # riêng ở pages/blacklist_page.py) - ƯU TIÊN CAO NHẤT trong 3 trạng thái
+    # khuôn mặt (đè lên known/stranger/unknown, xem CameraPipeline._check_faces).
+    # Ảnh bằng chứng + embedding lưu kèm (EventStore.add_event(embedding=...))
+    # giống STRANGER_ALERT - dùng làm nguồn ảnh bổ sung cho ĐÚNG entry đã khớp
+    # (xem BlacklistStore, luồng "Thêm ảnh từ lịch sử nhận diện").
+    BLACKLIST_ALERT = "blacklist_alert"
 
 
 # kind -> tên hiển thị (dùng chung cho event_log_page + mọi nơi khác cần label)
@@ -48,6 +57,7 @@ EVENT_KIND_LABELS: dict[EventKind, str] = {
     EventKind.OCCUPANCY_ALERT: "Overcrowding",
     EventKind.FACE_RECOGNIZED: "Recognized",
     EventKind.CROWD_ALERT: "Crowd Density",
+    EventKind.BLACKLIST_ALERT: "Blacklist Match",
 }
 
 # kind -> type_id gửi kèm Web_API.send_mobile_incident() - đã xác nhận với
@@ -57,10 +67,11 @@ EVENT_KIND_LABELS: dict[EventKind, str] = {
 # chung cả core/camera_pipeline.py lẫn pages/gate_kiosk_page.py (stranger
 # băng qua vạch) - tránh rải số ma thuật rời rạc như MIRAI.
 #
-# OCCUPANCY_ALERT/CROWD_ALERT CHỦ Ý không có mặt ở đây - chưa có type_id nào
-# được xác nhận với backend cho 2 cảnh báo này, nên chỉ hiện tại chỗ (Event
-# Log/SYSTEM ALARMS), KHÔNG đẩy lên mobile app (xem CameraPipeline._capture_events -
-# tự bỏ qua bước gửi web cho kind nào không có mặt trong dict này).
+# OCCUPANCY_ALERT/CROWD_ALERT/BLACKLIST_ALERT CHỦ Ý không có mặt ở đây - chưa
+# có type_id nào được xác nhận với backend cho các cảnh báo này, nên chỉ hiện
+# tại chỗ (Event Log/SYSTEM ALARMS), KHÔNG đẩy lên mobile app (xem
+# CameraPipeline._capture_events/_capture_face_events - tự bỏ qua bước gửi web
+# cho kind nào không có mặt trong dict này).
 EVENT_KIND_INCIDENT_TYPE_ID: dict[EventKind, int] = {
     EventKind.PPE_VIOLATION: 1,
     EventKind.STRANGER_ALERT: 2,

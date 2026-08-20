@@ -40,6 +40,7 @@ from PyQt6.QtGui import QImage
 
 from core.ai_model_manager import AIModelManager
 from core.ai_settings import AISettings
+from core.blacklist_store import BlacklistEntry, BlacklistStore
 from core.deep_sort_pytorch.deep_sort import DeepSort
 from core.deep_sort_pytorch.utils.parser import get_config
 from core.event_dedup import PresenceDedup
@@ -83,15 +84,20 @@ _FACE_MAX_PER_FRAME = 10           # đám đông > 10 mặt/frame -> chỉ nh�
 # giữ ngưỡng nhỏ để không lẫn giữa 2 mặt đứng gần nhau trong khung đông người.
 _IDENTITY_MATCH_MAX_DIST_RATIO = 0.08
 
-# 3 trạng thái hiển thị/xử lý cho mỗi khuôn mặt phát hiện được - xem
+# 4 trạng thái hiển thị/xử lý cho mỗi khuôn mặt phát hiện được - xem
 # CameraPipeline._check_faces (docstring đầy đủ ở đó).
 _FACE_STATUS_KNOWN = "known"
 _FACE_STATUS_STRANGER = "stranger"
 _FACE_STATUS_UNKNOWN = "unknown"
+# Khớp BlacklistStore (core/blacklist_store.py) - ƯU TIÊN CAO NHẤT, đè lên cả
+# 3 trạng thái kia (1 track dù trước đó là known/stranger/unknown, hễ khớp
+# blacklist là chuyển thẳng sang trạng thái này, xem _bind_face_identities).
+_FACE_STATUS_BLACKLIST = "blacklist"
 _FACE_STATUS_COLORS = {  # BGR - xem _draw_overlay
     _FACE_STATUS_KNOWN: (0, 200, 0),      # xanh lá
     _FACE_STATUS_STRANGER: (0, 100, 255),  # cam/đỏ
     _FACE_STATUS_UNKNOWN: (0, 220, 255),   # vàng - chưa đủ căn cứ kết luận
+    _FACE_STATUS_BLACKLIST: (0, 0, 255),   # đỏ THUẦN - cố ý khác hẳn cam/đỏ của Stranger để không lẫn lộn 2 mức độ nghiêm trọng
 }
 
 # 2 chế độ chống spam thông báo Người lạ (AIConfig.stranger_repeat_mode,
@@ -124,13 +130,17 @@ class _RememberedFace:
     """1 entry trong self._face_memory - xem hằng số _FACE_MEMORY_* phía
     trên. best_sim CHỈ có ý nghĩa khi name is None (ứng viên/đã xác nhận
     Stranger). notified (đã ghi Event Log/thông báo hay chưa, chế độ "once"
-    - xem _should_notify_face) có ý nghĩa cho CẢ 2 - người quen VÀ người
-    lạ."""
+    - xem _should_notify_face) có ý nghĩa cho CẢ 3 - người quen, người lạ,
+    VÀ Blacklist. blacklist_entry_id khác None nghĩa là track đã từng khớp
+    Blacklist - ƯU TIÊN CAO NHẤT khi khôi phục (xem _recall_face_memory:
+    khớp Blacklist thì bỏ qua name, không coi track mới khôi phục là known/
+    stranger nữa)."""
     embedding: np.ndarray
     last_seen: float
     name: str | None
     best_sim: float = 0.0
     notified: bool = False
+    blacklist_entry_id: str | None = None
 
 # Event Log: cùng ngưỡng "đợt vi phạm mới" với Event Feed/System Alarms
 # (dashboard_page.py/liveview_page.py) - tránh lưu ảnh spam liên tục trong
@@ -180,7 +190,7 @@ _RECONNECT_POLL_MS = 200
 class CameraPipeline(QThread):
     frame_ready = pyqtSignal(str, QImage)   # device_id, frame (chỉ emit khi có viewer)
     error_occurred = pyqtSignal(str, str)   # device_id, message
-    ai_result_ready = pyqtSignal(str, dict)  # device_id, {"num_people","num_in","num_out","ppe_violation","fire_alert","fall_alert","occupancy_alert","crowd_alert","stranger_alert","stranger_track_ids","known_faces"}
+    ai_result_ready = pyqtSignal(str, dict)  # device_id, {"num_people","num_in","num_out","ppe_violation","fire_alert","fall_alert","occupancy_alert","crowd_alert","stranger_alert","stranger_track_ids","blacklist_alert","blacklist_track_ids","known_faces"}
 
     def __init__(
         self,
@@ -264,6 +274,7 @@ class CameraPipeline(QThread):
         self._last_fall_alert = False
         self._last_fall_bbox: tuple[int, int, int, int] | None = None
         self._last_stranger_alert = False
+        self._last_blacklist_alert = False
         # x1,y1,x2,y2,label,status (_FACE_STATUS_*),track_id,in_roi
         self._last_face_boxes: list[tuple[int, int, int, int, str, str, int, bool]] = []
 
@@ -308,6 +319,12 @@ class CameraPipeline(QThread):
         # (DeepSort tự chịu được vài giây mất dấu) sẽ KHÔNG bị báo lại, dù
         # khoảng "im lặng" giữa 2 lần thấy rõ có dài hơn vài giây.
         self._face_track_notified: set[int] = set()
+        # track_id -> BlacklistEntry đã khớp (sticky - giống _face_track_identity,
+        # ƯU TIÊN CAO NHẤT: 1 khi track đã khớp Blacklist thì GIỮ NGUYÊN dù
+        # lượt sau match trượt do góc xấu, KHÔNG bị hạ cấp xuống known/
+        # stranger/unknown - xem _bind_face_identities/_check_faces). None/
+        # vắng mặt trong dict = chưa từng khớp Blacklist.
+        self._face_track_blacklist_entry: dict[int, BlacklistEntry] = {}
         # "Bộ nhớ tạm" bắc cầu qua lúc track chết (xem hằng số _FACE_MEMORY_*
         # và _recall_face_memory/_remember_face) - danh sách phẳng (không
         # cần key track_id, tự tra bằng cosine similarity embedding).
@@ -495,7 +512,16 @@ class CameraPipeline(QThread):
 
         try:
             while self._running:
-                ok, frame = cap.read()
+                # cap.read() TỰ THÂN cũng có thể raise (không chỉ trả về
+                # ok=False) với 1 số stream RTSP hỏng giữa chừng - bọc riêng,
+                # coi như mất kết nối, đi qua ĐÚNG luồng reconnect có sẵn bên
+                # dưới thay vì để lỗi thoát thẳng ra ngoài.
+                try:
+                    ok, frame = cap.read()
+                except Exception as exc:  # noqa: BLE001 - lỗi decode/kết nối từ chính OpenCV, không phải bug logic ở đây
+                    print(f"[CameraPipeline {self._device_id}] cap.read() lỗi, coi như mất kết nối: {exc}")
+                    ok, frame = False, None
+
                 if not ok:
                     cap.release()
                     cap = self._reconnect()
@@ -505,18 +531,43 @@ class CameraPipeline(QThread):
 
                 self._last_frame_ts = time.monotonic()
 
-                if self._ai_enabled:
-                    self._run_ai(frame)
-
-                if self._viewer_count > 0 and self._should_emit_frame():
+                # QUAN TRỌNG: bọc riêng phần xử lý (AI + hiển thị) - đây là
+                # nơi tổng hợp TOÀN BỘ code chạy mỗi frame (detect mặt/người/
+                # lửa/té ngã, DeepSort, blacklist, heatmap, vẽ overlay, convert
+                # QImage...), rủi ro cao nhất gặp lỗi bất ngờ (frame hỏng/thiếu
+                # channel do glitch đường truyền, model lỗi thoáng qua, GPU
+                # hiccup...). TRƯỚC bản sửa này, 1 lỗi bất kỳ ở đây sẽ THOÁT
+                # KHỎI run() luôn - QThread chết LẶNG LẼ (không exception nào
+                # nổi lên UI, không phải process crash vì Python thread lỗi
+                # không tự sập cả tiến trình) - camera "đứng hình" vĩnh viễn
+                # dù kết nối mạng/camera vẫn ổn, và DeviceManager.is_pipeline_running()
+                # (chỉ kiểm tra có trong dict, KHÔNG kiểm tra thread còn sống)
+                # vẫn báo "đang chạy" sai. Giờ: log lại rồi BỎ QUA đúng 1
+                # frame lỗi, giữ nguyên kết nối cap hiện tại, đọc tiếp frame
+                # kế - không cần reconnect (bản thân kết nối không có vấn đề).
+                try:
                     if self._ai_enabled:
-                        self._draw_overlay(frame)
-                    frame = self._apply_preview_downscale(frame)
-                    image = self._to_qimage(frame)
-                    if image is not None:
-                        self.frame_ready.emit(self._device_id, image)
+                        self._run_ai(frame)
+
+                    if self._viewer_count > 0 and self._should_emit_frame():
+                        if self._ai_enabled:
+                            self._draw_overlay(frame)
+                        frame = self._apply_preview_downscale(frame)
+                        image = self._to_qimage(frame)
+                        if image is not None:
+                            self.frame_ready.emit(self._device_id, image)
+                except Exception as exc:  # noqa: BLE001 - xem ghi chú ở trên, cố tình bắt rộng để 1 frame lỗi không giết cả pipeline
+                    print(f"[CameraPipeline {self._device_id}] Lỗi xử lý 1 frame (đã bỏ qua, tiếp tục chạy): {exc}")
         finally:
-            cap.release()
+            # cap có thể là None ở đây (bug đã gặp thật, không liên quan bản
+            # sửa ở trên): _reconnect() trả None khi bị stop() ngay lúc đang
+            # chờ kết nối lại (mất mạng/camera reboot rồi user bấm Stop) ->
+            # "cap = self._reconnect(); if cap is None: return" khiến return
+            # thoát qua ĐÚNG finally này với cap=None - gọi .release() thẳng
+            # sẽ AttributeError, làm thread chết vì lỗi thay vì thoát sạch
+            # theo đúng ý stop().
+            if cap is not None:
+                cap.release()
 
     def _run_ai(self, frame) -> None:
         """Chạy đúng những tính năng AI được BẬT cho camera này (checkbox
@@ -528,7 +579,7 @@ class CameraPipeline(QThread):
             return
         self._last_ai_ts = now
 
-        fire_alert = self._check_fire(frame) if self._enable_fire else False
+        fire_alert, fire_boxes = self._check_fire(frame) if self._enable_fire else (False, [])
         known_faces, stranger_alert = (
             self._check_faces(frame) if self._enable_face_recognition else ([], False)
         )
@@ -541,6 +592,13 @@ class CameraPipeline(QThread):
         stranger_track_ids = [
             box[6] for box in self._last_face_boxes if box[5] == _FACE_STATUS_STRANGER and box[7]
         ]
+        # Y hệt stranger_track_ids ở trên, cho trạng thái Blacklist (mức độ
+        # nghiêm trọng cao hơn, xem EventKind.BLACKLIST_ALERT) - phân biệt
+        # nhiều người trong blacklist xuất hiện gần nhau về thời gian.
+        blacklist_track_ids = [
+            box[6] for box in self._last_face_boxes if box[5] == _FACE_STATUS_BLACKLIST and box[7]
+        ]
+        blacklist_alert = bool(blacklist_track_ids)
 
         # Đếm vào/ra, Occupancy, PPE chỉ cần BBOX (không cần keypoints) nên
         # dùng human.pt (detector thuần, ~7ms/frame - nhẹ hơn nhiều so với
@@ -552,6 +610,8 @@ class CameraPipeline(QThread):
 
         num_people = 0
         ppe_violation = False
+        ppe_boxes: list[tuple[int, int, int, int]] = []
+        occupancy_boxes: list[tuple[int, int, int, int]] = []
         if need_person:
             person_result = AIModelManager.instance().detect_humans(frame, imgsz=self._inference_imgsz)
             boxes = person_result.boxes
@@ -580,10 +640,16 @@ class CameraPipeline(QThread):
                         self._update_counting(outputs)
                     if self._enable_occupancy:
                         num_people = self._count_occupancy(outputs)
+                        # Bbox TỪNG người đang track - dùng để vẽ lên ảnh
+                        # bằng chứng Occupancy (không lọc riêng theo ROI như
+                        # num_people - ROI đã có viền riêng, vẽ hết cho dễ
+                        # đối chiếu ai đang có mặt lúc vượt ngưỡng).
+                        occupancy_boxes = [(int(x1), int(y1), int(x2), int(y2)) for x1, y1, x2, y2, _tid, _c in outputs]
                         if self._crowd_heatmap_threshold > 0:
                             self._update_crowd_heatmap(outputs, frame.shape)
                 if self._enable_ppe:
                     ppe_violation = self._check_ppe(frame, boxes)
+                    ppe_boxes = [tuple(int(v) for v in xyxy) for xyxy in boxes.xyxy.cpu().numpy()]
 
         fall_alert = False
         fall_bbox = None
@@ -607,7 +673,10 @@ class CameraPipeline(QThread):
             and float(self._heatmap_grid.max()) >= self._crowd_heatmap_threshold
         )
 
-        self._capture_events(frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert, crowd_alert)
+        self._capture_events(
+            frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert, crowd_alert,
+            ppe_boxes=ppe_boxes, fire_boxes=fire_boxes, fall_bbox=fall_bbox, occupancy_boxes=occupancy_boxes,
+        )
 
         self._emit_ai_result(
             num_people=num_people,
@@ -620,10 +689,13 @@ class CameraPipeline(QThread):
             known_faces=known_faces,
             stranger_alert=stranger_alert,
             stranger_track_ids=stranger_track_ids,
+            blacklist_alert=blacklist_alert,
+            blacklist_track_ids=blacklist_track_ids,
         )
 
     def _capture_events(
-        self, frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert, crowd_alert
+        self, frame, ppe_violation, fire_alert, fall_alert, stranger_alert, occupancy_alert, crowd_alert,
+        ppe_boxes=(), fire_boxes=(), fall_bbox=None, occupancy_boxes=(),
     ) -> None:
         """Lưu ảnh bằng chứng (EventStore) cho mỗi ĐỢT cảnh báo MỚI - dedup
         qua PresenceDedup (cùng ngưỡng grace với Event Feed/System Alarms),
@@ -642,24 +714,38 @@ class CameraPipeline(QThread):
         thêm debounce riêng (khác MIRAI - mỗi feature tự có 1 kiểu debounce
         rời rạc: delay==3, interval theo giây...).
 
-        Stranger/Face-recognized KHÔNG nằm trong "checks" ở đây (ảnh bằng
-        chứng của 2 loại đó là CROP KHUÔN MẶT, không phải full-frame + ROI
-        như PPE/Fire/Fall/Occupancy) - xem _capture_face_events."""
+        ppe_boxes/fire_boxes/fall_bbox/occupancy_boxes - vẽ khung phát hiện
+        LÊN ẢNH BẰNG CHỨNG (không chỉ vẽ ROI như trước) - bug đã gặp thật:
+        xem lại Event Log ảnh cháy/té ngã chỉ thấy cả khung hình, không rõ
+        VỊ TRÍ nào được phát hiện, phải đoán. fall_bbox chỉ 1 (đúng người
+        vừa ngã), 3 cái còn lại là LIST (có thể nhiều vùng lửa/nhiều người
+        cùng lúc) - xem _build_evidence_frame.
+
+        Stranger/Face-recognized/Blacklist KHÔNG nằm trong "checks" ở đây
+        (ảnh bằng chứng của 3 loại đó là CROP KHUÔN MẶT, không phải full-frame
+        + ROI như PPE/Fire/Fall/Occupancy) - xem _capture_face_events."""
+        # (is_active, kind, boxes cần vẽ, màu BGR, nhãn text) - màu khớp
+        # đúng màu đã dùng cho từng loại ở _draw_overlay (Fall đỏ giống khung
+        # fall preview, PPE/Occupancy xanh lá giống bbox người thường, Fire
+        # cam/đỏ riêng vì chưa từng có màu preview cho fire trước đây).
         checks = (
-            (ppe_violation, EventKind.PPE_VIOLATION),
-            (fire_alert, EventKind.FIRE_ALERT),
-            (fall_alert, EventKind.FALL_ALERT),
-            (occupancy_alert, EventKind.OCCUPANCY_ALERT),
-            (crowd_alert, EventKind.CROWD_ALERT),
+            (ppe_violation, EventKind.PPE_VIOLATION, ppe_boxes, (0, 200, 0), "PPE"),
+            (fire_alert, EventKind.FIRE_ALERT, fire_boxes, (0, 100, 255), "FIRE"),
+            (fall_alert, EventKind.FALL_ALERT, [fall_bbox] if fall_bbox is not None else [], (0, 0, 255), "FALL"),
+            (occupancy_alert, EventKind.OCCUPANCY_ALERT, occupancy_boxes, (0, 200, 0), ""),
+            (crowd_alert, EventKind.CROWD_ALERT, [], (0, 0, 0), ""),
         )
-        for is_active, kind in checks:
+        for is_active, kind, boxes_to_draw, box_color, box_label in checks:
             if is_active and self._event_dedup.is_new_occurrence(kind):
                 # CROWD_ALERT CẦN thấy lớp phủ heatmap trong ảnh bằng chứng -
                 # khác PPE/Fire/Fall/Occupancy (chỉ cần thấy CÓ vi phạm/đông
                 # người), cảnh báo này ý nghĩa nằm ở VỊ TRÍ tụ tập CỤ THỂ
                 # trong ROI, xem lại Event Log sau này mà không có overlay
                 # thì không biết đông ở đâu, chỉ biết "có báo động".
-                evidence_frame = self._build_evidence_frame(frame, include_heatmap=(kind == EventKind.CROWD_ALERT))
+                evidence_frame = self._build_evidence_frame(
+                    frame, include_heatmap=(kind == EventKind.CROWD_ALERT),
+                    boxes=boxes_to_draw, box_color=box_color, box_label=box_label,
+                )
                 EventStore.instance().add_event(self._device_id, self._device_name, kind, evidence_frame)
                 self._send_incident(evidence_frame, kind)
 
@@ -669,7 +755,7 @@ class CameraPipeline(QThread):
         """Ghi Event Log cho khuôn mặt nhận diện được ở lượt AI này
         (self._last_face_boxes - đã có sẵn từ _check_faces, mỗi phần tử là
         (x1,y1,x2,y2,nhãn,status,track_id) - status là 1 trong
-        _FACE_STATUS_KNOWN/_STRANGER/_UNKNOWN) - ảnh bằng chứng là ẢNH CROP
+        _FACE_STATUS_BLACKLIST/_KNOWN/_STRANGER/_UNKNOWN) - ảnh bằng chứng là ẢNH CROP
         KHUÔN MẶT (core/face_crop.py), giống hệt cách Gate Kiosk đã làm
         (pages/gate_kiosk_page.py::_on_presence_confirmed), KHÔNG phải cả
         frame - xem lại nhanh đúng mặt ai mà không cần phóng to.
@@ -708,14 +794,30 @@ class CameraPipeline(QThread):
             elif status == _FACE_STATUS_STRANGER:
                 if self._should_notify_face(track_id, grace_key=(EventKind.STRANGER_ALERT, track_id)):
                     evidence = crop_face_with_padding(frame, (x1, y1, x2, y2))
+                    embedding = self._face_track_last_embedding.get(track_id)
                     EventStore.instance().add_event(
-                        self._device_id, self._device_name, EventKind.STRANGER_ALERT, evidence
+                        self._device_id, self._device_name, EventKind.STRANGER_ALERT, evidence,
+                        embedding=embedding.tobytes() if embedding is not None else None,
                     )
                     self._send_incident(evidence, EventKind.STRANGER_ALERT)
+            elif status == _FACE_STATUS_BLACKLIST:
+                # detail=name - "name" ở đây LÀ label đã gán ở _check_faces
+                # (= blacklist_entry.name, xem vòng lặp phân loại trạng thái)
+                # - không cần tra lại BlacklistStore. embedding lưu kèm để
+                # dùng làm nguồn ảnh cho luồng "Thêm ảnh từ lịch sử nhận
+                # diện" sau này (core/blacklist_store.py, pages/blacklist_page.py).
+                if self._should_notify_face(track_id, grace_key=(EventKind.BLACKLIST_ALERT, track_id)):
+                    evidence = crop_face_with_padding(frame, (x1, y1, x2, y2))
+                    embedding = self._face_track_last_embedding.get(track_id)
+                    EventStore.instance().add_event(
+                        self._device_id, self._device_name, EventKind.BLACKLIST_ALERT, evidence, detail=name,
+                        embedding=embedding.tobytes() if embedding is not None else None,
+                    )
+                    self._send_incident(evidence, EventKind.BLACKLIST_ALERT)
 
     def _should_notify_face(self, track_id: int, grace_key) -> bool:
         """Quyết định có nên ghi Event Log/thông báo cho track này hay
-        không - dùng CHUNG cho cả người quen VÀ người lạ (xem
+        không - dùng CHUNG cho cả người quen, người lạ, VÀ Blacklist (xem
         _capture_face_events), theo đúng AIConfig.stranger_repeat_mode:
           - "grace_period" - self._event_dedup theo grace_key (khác nhau
                              giữa người quen/tên và người lạ/track_id - xem
@@ -738,11 +840,13 @@ class CameraPipeline(QThread):
         self._face_track_notified.add(track_id)
         last_embedding = self._face_track_last_embedding.get(track_id)
         if last_embedding is not None:
+            track_blacklist_entry = self._face_track_blacklist_entry.get(track_id)
             self._remember_face(
                 last_embedding,
                 name=self._face_track_identity.get(track_id),
                 best_sim=self._face_track_best_sim.get(track_id, 0.0),
                 notified=True,
+                blacklist_entry_id=track_blacklist_entry.id if track_blacklist_entry is not None else None,
             )
         return True
 
@@ -765,29 +869,48 @@ class CameraPipeline(QThread):
             evidence_frame, details, EVENT_KIND_INCIDENT_TYPE_ID[kind], self._web_camera_id
         )
 
-    def _build_evidence_frame(self, frame, include_heatmap: bool = False):
+    def _build_evidence_frame(
+        self, frame, include_heatmap: bool = False,
+        boxes=(), box_color: tuple[int, int, int] = (0, 200, 0), box_label: str = "",
+    ):
         """Ảnh bằng chứng = frame gốc + vẽ vùng ROI (nếu camera có cấu hình)
-        để biết rõ vùng làm việc/khu vực liên quan tới cảnh báo. Vẽ trên 1
-        BẢN SAO, không đụng tới frame gốc (vẫn được dùng tiếp cho overlay
-        preview ngay sau _run_ai trong run()).
+        + khung CÁC VỊ TRÍ đã phát hiện (boxes, nếu có) để biết rõ vùng làm
+        việc/khu vực VÀ vị trí cụ thể liên quan tới cảnh báo. Vẽ trên 1 BẢN
+        SAO, không đụng tới frame gốc (vẫn được dùng tiếp cho overlay preview
+        ngay sau _run_ai trong run()).
+
+        boxes - danh sách (x1,y1,x2,y2) vẽ khung box_color (BGR) + nhãn
+        box_label (rỗng = không vẽ text, dùng cho Occupancy có nhiều bbox
+        cùng lúc, vẽ text từng box sẽ rối) - bug đã gặp thật: ảnh bằng chứng
+        PPE/Fire/Fall/Occupancy trước đây CHỈ có ROI (nếu có) hoặc CHỈ full
+        frame trơn, không rõ AI phát hiện ở vị trí nào, phải tự đoán khi xem
+        lại Event Log - xem _capture_events (nơi TRUYỀN boxes tương ứng từng
+        loại cảnh báo).
 
         include_heatmap=True (CHỈ CROWD_ALERT dùng, xem _capture_events) -
         vẽ THÊM lớp phủ heatmap (_blend_heatmap, cùng hàm dùng cho preview
-        LiveView) TRƯỚC khi vẽ viền ROI - giữ ĐÚNG thứ tự lớp như
-        _draw_overlay (heatmap dưới cùng, ROI vẽ đè lên trên cho rõ viền) -
+        LiveView) TRƯỚC khi vẽ viền ROI/boxes - giữ ĐÚNG thứ tự lớp như
+        _draw_overlay (heatmap dưới cùng, ROI/box vẽ đè lên trên cho rõ nét) -
         để xem lại Event Log sau này thấy được CHÍNH XÁC khu vực nào đang
         tụ tập lúc cảnh báo được ghi, không chỉ biết chung chung "có báo
         động"."""
-        if not self._roi_polygons and not include_heatmap:
+        if not self._roi_polygons and not include_heatmap and not boxes:
             return frame
         evidence = frame.copy()
         if include_heatmap and self._heatmap_grid is not None and self._crowd_heatmap_threshold > 0:
             self._blend_heatmap(evidence)
         for polygon in self._roi_polygons:
             cv2.polylines(evidence, [polygon], isClosed=True, color=(120, 200, 0), thickness=2)
+        for x1, y1, x2, y2 in boxes:
+            cv2.rectangle(evidence, (x1, y1), (x2, y2), box_color, 2)
+            if box_label:
+                cv2.putText(
+                    evidence, box_label, (x1, max(15, y1 - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 1, cv2.LINE_AA,
+                )
         return evidence
 
-    def _check_fire(self, frame) -> bool:
+    def _check_fire(self, frame) -> tuple[bool, list[tuple[int, int, int, int]]]:
         """Fire detection port từ YOLO_FIRE.py: chạy trên TOÀN khung hình,
         độc lập với Body/Pose - không cần ROI, không cần có người. Không
         làm mượt/debounce thêm - giữ nguyên hành vi gốc (mỗi frame AI có
@@ -797,10 +920,17 @@ class CameraPipeline(QThread):
         fire_detection_new.pt có 2 lớp {0: Fire, 1: Smoke} nhưng dùng CHUNG
         1 ngưỡng AISettings.fire_conf (lọc ngay trong AIModelManager.detect_fire,
         classes=[0, 1]) - box nào lọt qua model() là đủ điều kiện báo động,
-        không cần lọc lại ở đây."""
+        không cần lọc lại ở đây.
+
+        Trả về THÊM danh sách bbox (CÓ THỂ nhiều vùng lửa/khói cùng lúc,
+        khác Fall chỉ 1 người) - dùng để vẽ khung lên ảnh bằng chứng Event
+        Log (_build_evidence_frame), xem _capture_events."""
         result = AIModelManager.instance().detect_fire(frame, imgsz=self._inference_imgsz)
         boxes = result.boxes
-        return boxes is not None and len(boxes) > 0
+        if boxes is None or len(boxes) == 0:
+            return False, []
+        fire_boxes = [tuple(int(v) for v in xyxy) for xyxy in boxes.xyxy.cpu().numpy()]
+        return True, fire_boxes
 
     def _check_faces(self, frame) -> tuple[list[str], bool]:
         """Face recognition port từ Face_detection.py của MIRAI, NÂNG CẤP
@@ -824,8 +954,13 @@ class CameraPipeline(QThread):
         khuôn mặt "Stranger đã xác nhận" trong frame này hay không - dùng
         cho SYSTEM ALARMS/camera card badge, xem _emit_ai_result).
 
-        3 TRẠNG THÁI cho mỗi khuôn mặt/track (self._last_face_boxes, xem
+        4 TRẠNG THÁI cho mỗi khuôn mặt/track (self._last_face_boxes, xem
         _FACE_STATUS_*):
+          - "blacklist" - track đã khớp ra 1 entry trong BlacklistStore
+                         (sticky, ƯU TIÊN CAO NHẤT - đè lên cả 3 trạng thái
+                         dưới đây dù track đó trước đó/đồng thời cũng khớp
+                         known hay đủ gate Stranger - xem _bind_face_identities/
+                         core/blacklist_store.py) -> tên/nhãn entry.
           - "known"    - track đã khớp ra 1 người quen (sticky - xem
                          _bind_face_identities) -> tên thật.
           - "stranger" - CHƯA từng khớp ai VÀ đã qua đủ CẢ 2 gate: track
@@ -917,8 +1052,14 @@ class CameraPipeline(QThread):
             track_id = int(track_id)
             active_ids.add(track_id)
             in_roi = not self._roi_polygons or self._face_center_in_roi((x1, y1, x2, y2))
+            blacklist_entry = self._face_track_blacklist_entry.get(track_id)
             name = self._face_track_identity.get(track_id)
-            if name is not None:
+            if blacklist_entry is not None:
+                # ƯU TIÊN CAO NHẤT - đè lên known/stranger/unknown, KHÔNG góp
+                # vào known_faces (danh sách đó dùng cho "Recognized" - ý
+                # nghĩa khác hẳn, không nên lẫn Blacklist vào đó).
+                status, label = _FACE_STATUS_BLACKLIST, blacklist_entry.name
+            elif name is not None:
                 status, label = _FACE_STATUS_KNOWN, name
                 if in_roi:
                     known_faces.append(name)
@@ -984,6 +1125,7 @@ class CameraPipeline(QThread):
             return
         max_dist = _IDENTITY_MATCH_MAX_DIST_RATIO * frame_width
         store = KnownFacesStore.instance()
+        blacklist_store = BlacklistStore.instance()
         settings = AISettings.instance()
         for face in good_faces:
             fx1, fy1, fx2, fy2 = face.bbox
@@ -1002,11 +1144,15 @@ class CameraPipeline(QThread):
                 remembered = self._recall_face_memory(face.normed_embedding)
                 if remembered is not None:
                     self._face_track_identity[best_track_id] = remembered.name
-                    # "đã thông báo" áp dụng cho CẢ người quen VÀ người lạ
-                    # (chế độ "once" - xem _should_notify_face), khôi phục
-                    # bất kể remembered.name có hay không.
+                    # "đã thông báo" áp dụng cho CẢ 3 - người quen, người lạ,
+                    # Blacklist (chế độ "once" - xem _should_notify_face),
+                    # khôi phục bất kể remembered.name có hay không.
                     if remembered.notified:
                         self._face_track_notified.add(best_track_id)
+                    if remembered.blacklist_entry_id is not None:
+                        entry = blacklist_store.get_entry(remembered.blacklist_entry_id)
+                        if entry is not None:
+                            self._face_track_blacklist_entry[best_track_id] = entry
                     if remembered.name is None:
                         self._face_track_seen_well.add(best_track_id)
                         self._face_track_best_sim[best_track_id] = remembered.best_sim
@@ -1016,6 +1162,17 @@ class CameraPipeline(QThread):
                 and estimate_face_frontal_ratio(face.kps) >= settings.stranger_min_frontal_ratio
             ):
                 self._face_track_seen_well.add(best_track_id)
+
+            # Blacklist - ƯU TIÊN CAO NHẤT, kiểm tra ĐỘC LẬP với known/stranger
+            # bên dưới (không ảnh hưởng lẫn nhau). Sticky đơn giản hơn known
+            # (không cần "best_sim vùng xám" gì cả) - chỉ GÁN khi khớp, KHÔNG
+            # BAO GIỜ xoá khi trượt (track đã khớp Blacklist 1 lần là giữ mãi
+            # cho tới khi track chết - xem _prune_face_tracks).
+            blacklist_entry, _blacklist_sim = blacklist_store.match(
+                face.normed_embedding, threshold=settings.blacklist_match_threshold
+            )
+            if blacklist_entry is not None:
+                self._face_track_blacklist_entry[best_track_id] = blacklist_entry
 
             name, sim = store.match(face.normed_embedding, threshold=settings.face_similarity_threshold)
             matched_name = None if name == "Stranger" else name
@@ -1038,11 +1195,13 @@ class CameraPipeline(QThread):
                 self._face_track_identity[best_track_id] = matched_name
 
             self._face_track_last_embedding[best_track_id] = face.normed_embedding
+            track_blacklist_entry = self._face_track_blacklist_entry.get(best_track_id)
             self._remember_face(
                 face.normed_embedding,
                 name=self._face_track_identity.get(best_track_id),
                 best_sim=self._face_track_best_sim.get(best_track_id, 0.0),
                 notified=best_track_id in self._face_track_notified,
+                blacklist_entry_id=track_blacklist_entry.id if track_blacklist_entry is not None else None,
             )
 
     def _recall_face_memory(self, embedding: np.ndarray) -> "_RememberedFace | None":
@@ -1064,7 +1223,10 @@ class CameraPipeline(QThread):
                 best_sim, best_entry = sim, entry
         return best_entry
 
-    def _remember_face(self, embedding: np.ndarray, name: str | None, best_sim: float, notified: bool) -> None:
+    def _remember_face(
+        self, embedding: np.ndarray, name: str | None, best_sim: float, notified: bool,
+        blacklist_entry_id: str | None = None,
+    ) -> None:
         """Ghi/cập nhật 1 khuôn mặt vào self._face_memory - tìm entry KHỚP
         gần nhất trước (cùng ngưỡng với _recall_face_memory) để CẬP NHẬT ĐÈ
         (không tạo entry mới mỗi frame cho ĐÚNG 1 người đang đứng yên/di
@@ -1080,8 +1242,9 @@ class CameraPipeline(QThread):
                 entry.name = name
                 entry.best_sim = best_sim
                 entry.notified = notified
+                entry.blacklist_entry_id = blacklist_entry_id
                 return
-        self._face_memory.append(_RememberedFace(embedding, now, name, best_sim, notified))
+        self._face_memory.append(_RememberedFace(embedding, now, name, best_sim, notified, blacklist_entry_id))
         if len(self._face_memory) > _FACE_MEMORY_MAX_ENTRIES:
             self._face_memory.pop(0)
 
@@ -1089,6 +1252,9 @@ class CameraPipeline(QThread):
         for track_id in list(self._face_track_identity):
             if track_id not in active_ids:
                 del self._face_track_identity[track_id]
+        for track_id in list(self._face_track_blacklist_entry):
+            if track_id not in active_ids:
+                del self._face_track_blacklist_entry[track_id]
         self._face_track_seen_well &= active_ids
         for track_id in list(self._face_track_best_sim):
             if track_id not in active_ids:
@@ -1398,6 +1564,8 @@ class CameraPipeline(QThread):
             alerts.append("FALL")
         if self._last_stranger_alert:
             alerts.append("STRANGER")
+        if self._last_blacklist_alert:
+            alerts.append("BLACKLIST")
         if alerts:
             cv2.putText(
                 frame, " | ".join(alerts), (10, 30),
@@ -1472,6 +1640,8 @@ class CameraPipeline(QThread):
         known_faces: list[str] | None = None,
         stranger_alert: bool = False,
         stranger_track_ids: list[int] | None = None,
+        blacklist_alert: bool = False,
+        blacklist_track_ids: list[int] | None = None,
     ) -> None:
         # Cache lại cho _draw_overlay() dùng - overlay vẽ trên MỌI frame emit
         # (kể cả frame không trùng nhịp AI chạy), nên cần giữ trạng thái cảnh
@@ -1481,6 +1651,7 @@ class CameraPipeline(QThread):
         self._last_fall_alert = fall_alert
         self._last_fall_bbox = fall_bbox
         self._last_stranger_alert = stranger_alert
+        self._last_blacklist_alert = blacklist_alert
         self.ai_result_ready.emit(
             self._device_id,
             {
@@ -1494,10 +1665,13 @@ class CameraPipeline(QThread):
                 "crowd_alert": crowd_alert,
                 "known_faces": known_faces or [],
                 "stranger_alert": stranger_alert,
-                # track_id của TỪNG người lạ đã xác nhận trong lượt này - xem
-                # pages/liveview_page.py::_log_alarms/pages/dashboard_page.py
-                # (phân biệt 2 người lạ khác nhau, không dồn chung 1 dòng log).
+                # track_id của TỪNG người lạ/Blacklist đã xác nhận trong lượt
+                # này - xem pages/liveview_page.py::_log_alarms/
+                # pages/dashboard_page.py (phân biệt nhiều người khác nhau,
+                # không dồn chung 1 dòng log).
                 "stranger_track_ids": stranger_track_ids or [],
+                "blacklist_alert": blacklist_alert,
+                "blacklist_track_ids": blacklist_track_ids or [],
             },
         )
 
